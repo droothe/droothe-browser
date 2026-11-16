@@ -10,7 +10,15 @@
     "frontendDist": "../dist"
   },
   "app": {
-    "windows": [],
+    "windows": [
+      {
+        "label": "main",
+        "title": "Droothe Browser",
+        "width": 1280,
+        "height": 800,
+        "decorations": false
+      }
+    ],
     "security": {
       "csp": null
     }

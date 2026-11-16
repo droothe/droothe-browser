@@ -1,11 +1,12 @@
 use std::sync::Mutex;
 use tauri::{
-    webview::WebviewBuilder, AppHandle, LogicalPosition, LogicalSize, Manager, State, WebviewUrl,
-    Window, WindowEvent,
+    webview::{PageLoadEvent, WebviewBuilder},
+    AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, State, WebviewUrl, Window,
+    WindowEvent,
 };
 use url::Url;
 
-const TOOLBAR_HEIGHT: f64 = 76.0;
+const TOOLBAR_HEIGHT: f64 = 84.0;
 
 #[derive(Default)]
 struct BrowserState {
@@ -75,6 +76,7 @@ fn history_tab(app: AppHandle, tab_id: String, action: String) -> Result<(), Str
         "goBack" => "history.back()",
         "goForward" => "history.forward()",
         "reload" => "location.reload()",
+        "stop" => "window.stop()",
         _ => return Err("Geçersiz gezinme işlemi.".into()),
     };
     let webview = app
@@ -112,9 +114,20 @@ async fn open_tab(
             .map_err(|error| format!("Pencere boyutu okunamadı: {error}"))?;
         let width = f64::from(physical_size.width) / scale_factor;
         let height = (f64::from(physical_size.height) / scale_factor - TOOLBAR_HEIGHT).max(1.0);
+        let app_handle = app.clone();
+        let load_tab_id = tab_id.clone();
         window
             .add_child(
-                WebviewBuilder::new(label.clone(), WebviewUrl::External(url)),
+                WebviewBuilder::new(label.clone(), WebviewUrl::External(url)).on_page_load(
+                    move |_, payload| {
+                        let loading = matches!(payload.event(), PageLoadEvent::Started);
+                        if let Err(error) =
+                            app_handle.emit("tab-load-state", format!("{load_tab_id}|{loading}"))
+                        {
+                            eprintln!("Sekme yükleme durumu gönderilemedi: {error}");
+                        }
+                    },
+                ),
                 LogicalPosition::new(0.0, TOOLBAR_HEIGHT),
                 LogicalSize::new(width, height),
             )
@@ -188,19 +201,17 @@ pub fn run() {
             history_tab
         ])
         .setup(|app| {
-            let window = Window::builder(app, "main")
-                .title("Droothe Browser")
-                .inner_size(1280.0, 800.0)
-                .build()?;
+            let window = app
+                .get_window("main")
+                .expect("main window must be configured in tauri.conf.json");
             let scale_factor = window.scale_factor()?;
             let physical_size = window.inner_size()?;
             let width = f64::from(physical_size.width) / scale_factor;
-
-            window.add_child(
-                WebviewBuilder::new("main", WebviewUrl::App("index.html".into())),
-                LogicalPosition::new(0.0, 0.0),
-                LogicalSize::new(width, TOOLBAR_HEIGHT),
-            )?;
+            let main_webview = app
+                .get_webview("main")
+                .expect("main webview must be created from tauri.conf.json");
+            main_webview.set_position(LogicalPosition::new(0.0, 0.0))?;
+            main_webview.set_size(LogicalSize::new(width, TOOLBAR_HEIGHT))?;
 
             let app_handle = app.handle().clone();
             let resize_window = window.clone();

@@ -1,11 +1,8 @@
 import { invoke } from "@tauri-apps/api/core";
-import { FormEvent, useEffect, useRef, useState } from "react";
-
-type BrowserTab = {
-  id: string;
-  title: string;
-  url: string;
-};
+import { listen } from "@tauri-apps/api/event";
+import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
+import NavigationBar from "./components/NavigationBar";
+import TitleTabBar, { BrowserTab } from "./components/TitleTabBar";
 
 const HOME_URL = "https://duckduckgo.com";
 
@@ -29,9 +26,13 @@ function App() {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [address, setAddress] = useState("");
   const [error, setError] = useState("");
+  const [loadingByTab, setLoadingByTab] = useState<Record<string, boolean>>({});
   const nextId = useRef(1);
 
   const activeTab = tabs.find((tab) => tab.id === activeId);
+  const activeLoading = activeId ? Boolean(loadingByTab[activeId]) : false;
+
+  const handleError = useCallback((message: string) => setError(message), []);
 
   async function activateTab(tab: BrowserTab) {
     setError("");
@@ -93,10 +94,13 @@ function App() {
     }
   }
 
-  async function runHistoryAction(action: "goBack" | "goForward" | "reload") {
+  async function runHistoryAction(action: "goBack" | "goForward" | "reload" | "stop") {
     if (!activeId) return;
     try {
       await invoke("history_tab", { tabId: activeId, action });
+      if (action === "stop") {
+        setLoadingByTab((current) => ({ ...current, [activeId]: false }));
+      }
       setError("");
     } catch (reason) {
       setError(String(reason));
@@ -104,104 +108,52 @@ function App() {
   }
 
   useEffect(() => {
-    void createTab();
+    let unlisten: (() => void) | undefined;
+    let cancelled = false;
+
+    void listen<string>("tab-load-state", (event) => {
+      const [tabId, loading] = event.payload.split("|");
+      if (!tabId) return;
+      setLoadingByTab((current) => ({ ...current, [tabId]: loading === "true" }));
+    }).then((stopListening) => {
+      if (cancelled) {
+        stopListening();
+      } else {
+        unlisten = stopListening;
+      }
+    }).then(() => {
+      if (!cancelled) {
+        void createTab();
+      }
+    }).catch((reason) => setError(String(reason)));
+
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
   }, []);
 
   return (
-    <header className="flex h-[76px] w-full flex-col overflow-hidden border-b border-slate-800 bg-browser-base text-slate-100">
-      <div className="flex h-9 min-h-9 items-center gap-1 border-b border-slate-800/80 px-2">
-        <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
-          {tabs.map((tab) => (
-            <div
-              key={tab.id}
-              className={`group flex h-7 max-w-52 min-w-28 cursor-pointer items-center gap-2 rounded-t-md border px-3 text-xs transition ${
-                activeId === tab.id
-                  ? "border-slate-700 border-b-browser-indigo bg-browser-panel text-white"
-                  : "border-transparent text-slate-400 hover:bg-slate-800/70 hover:text-slate-200"
-              }`}
-              onClick={() => void activateTab(tab).catch((reason) => setError(String(reason)))}
-              title={tab.url}
-            >
-              <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-browser-cyan" />
-              <span className="truncate">{tab.title}</span>
-              <button
-                type="button"
-                aria-label="Sekmeyi kapat"
-                className="ml-auto rounded px-1 text-slate-500 hover:bg-slate-700 hover:text-white"
-                onClick={(event) => {
-                  event.stopPropagation();
-                  void closeTab(tab.id);
-                }}
-              >
-                ×
-              </button>
-            </div>
-          ))}
-        </div>
-        <button
-          type="button"
-          aria-label="Yeni sekme"
-          onClick={() => void createTab()}
-          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-lg text-slate-400 transition hover:bg-slate-800 hover:text-white"
-        >
-          +
-        </button>
-      </div>
-
-      <form className="flex h-10 min-h-10 items-center gap-2 px-3" onSubmit={navigate}>
-        <div className="flex items-center gap-1">
-          <ToolbarButton label="Geri" onClick={() => void runHistoryAction("goBack")}>
-            ←
-          </ToolbarButton>
-          <ToolbarButton label="İleri" onClick={() => void runHistoryAction("goForward")}>
-            →
-          </ToolbarButton>
-          <ToolbarButton label="Yenile" onClick={() => void runHistoryAction("reload")}>
-            ↻
-          </ToolbarButton>
-        </div>
-        <div className="flex h-7 min-w-0 flex-1 items-center rounded-md border border-slate-700 bg-browser-panel px-3 transition focus-within:border-browser-indigo focus-within:ring-1 focus-within:ring-browser-indigo/40">
-          <span className="mr-2 text-[10px] text-browser-cyan">●</span>
-          <input
-            value={address}
-            onChange={(event) => setAddress(event.target.value)}
-            placeholder="Adres veya arama girin"
-            aria-label="Adres veya arama"
-            className="h-full min-w-0 flex-1 bg-transparent text-xs text-slate-100 outline-none placeholder:text-slate-500"
-          />
-          {error && (
-            <span className="ml-2 max-w-56 truncate text-[10px] text-rose-400" title={error}>
-              {error}
-            </span>
-          )}
-        </div>
-        <span className="hidden max-w-32 truncate text-[10px] text-slate-500 sm:block">
-          {activeTab?.title ?? "Droothe"}
-        </span>
-      </form>
+    <header className="flex h-[84px] w-full flex-col overflow-hidden text-[var(--text-primary)]">
+      <TitleTabBar
+        tabs={tabs}
+        activeId={activeId}
+        onActivate={(tab) => void activateTab(tab).catch((reason) => setError(String(reason)))}
+        onClose={(tabId) => void closeTab(tabId)}
+        onCreate={() => void createTab()}
+        onError={handleError}
+      />
+      <NavigationBar
+        address={address}
+        activeId={activeId}
+        loading={activeLoading}
+        error={error}
+        onAddressChange={setAddress}
+        onSubmit={navigate}
+        onHistoryAction={(action) => void runHistoryAction(action)}
+      />
+      {activeTab && <span className="sr-only">{activeTab.title}</span>}
     </header>
-  );
-}
-
-function ToolbarButton({
-  children,
-  label,
-  onClick,
-}: {
-  children: string;
-  label: string;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      aria-label={label}
-      title={label}
-      onClick={onClick}
-      className="flex h-7 w-7 items-center justify-center rounded-md text-base text-slate-400 transition hover:bg-slate-800 hover:text-white"
-    >
-      {children}
-    </button>
   );
 }
 
