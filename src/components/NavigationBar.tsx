@@ -27,6 +27,7 @@ type NavigationBarProps = {
   onHistoryAction: (action: "goBack" | "goForward" | "reload" | "stop") => void;
   onToggleScratchpad: () => void;
   onToggleGemini: () => void;
+  onReloadGemini: () => void;
 };
 
 function ToolbarButton({
@@ -68,6 +69,7 @@ export default function NavigationBar({
   onHistoryAction,
   onToggleScratchpad,
   onToggleGemini,
+  onReloadGemini,
 }: NavigationBarProps) {
   const isSecure = address.trim().toLowerCase().startsWith("https://");
 
@@ -155,6 +157,11 @@ export default function NavigationBar({
         </div>
 
         <div className="flex shrink-0 items-center gap-1">
+          {geminiOpen && (
+            <ToolbarButton label="Reload Gemini" onClick={onReloadGemini}>
+              <RotateCw size={15} />
+            </ToolbarButton>
+          )}
           <button
             type="button"
             aria-label="Toggle Gemini AI panel"
@@ -163,7 +170,7 @@ export default function NavigationBar({
             onClick={onToggleGemini}
             className={`flex h-8 w-8 items-center justify-center rounded-lg transition-colors duration-150 hover:bg-[var(--bg-hover)] ${
               geminiOpen
-                ? "text-[var(--accent-primary)]"
+                ? "border-r border-[var(--border-subtle)] text-[var(--accent-primary)]"
                 : "text-[var(--text-secondary)] hover:text-[var(--accent-secondary)]"
             }`}
           >

@@ -1,7 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { RotateCw, Sparkles, X } from "lucide-react";
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import NewTabView from "./components/NewTabView";
 import NavigationBar from "./components/NavigationBar";
@@ -18,8 +17,7 @@ import {
 type TabTitleUpdate = { tabId: string; title: string };
 type BrowserShortcut = { tabId: string; shortcut: string };
 const SCRATCHPAD_WIDTH = 360;
-const GEMINI_PANEL_WIDTH = 380;
-const GEMINI_HEADER_HEIGHT = 36;
+const GEMINI_PANEL_WIDTH = 360;
 type ShortcutActions = {
   tabs: BrowserTab[];
   activeId: string | null;
@@ -185,18 +183,10 @@ function App() {
           addressInputRef.current?.select();
           break;
         case "toggle-scratchpad":
-          setIsScratchpadOpen((open) => {
-            const next = !open;
-            if (next) setIsGeminiOpen(false);
-            return next;
-          });
+          setIsScratchpadOpen((open) => !open);
           break;
         case "toggle-gemini":
-          setIsGeminiOpen((open) => {
-            const next = !open;
-            if (next) setIsScratchpadOpen(false);
-            return next;
-          });
+          setIsGeminiOpen((open) => !open);
           break;
         case "next-tab":
         case "previous-tab": {
@@ -327,18 +317,11 @@ function App() {
         ]);
         const viewportWidth = rect.width > 0 ? rect.width : innerSize.width / scaleFactor;
         const height = Math.max(1, innerSize.height / scaleFactor - 84);
-        const panelWidth = Math.min(GEMINI_PANEL_WIDTH, viewportWidth);
-        const width = Math.max(
-          1,
-          viewportWidth -
-            (isGeminiOpen
-              ? panelWidth
-              : isScratchpadOpen
-                ? SCRATCHPAD_WIDTH
-                : 0),
-        );
+        const leftOffset = isGeminiOpen ? GEMINI_PANEL_WIDTH : 0;
+        const rightOffset = isScratchpadOpen ? SCRATCHPAD_WIDTH : 0;
+        const width = Math.max(200, viewportWidth - leftOffset - rightOffset);
         await invoke("sync_active_webview_bounds", {
-          x: 0,
+          x: leftOffset,
           y: 84,
           width,
           height,
@@ -347,10 +330,10 @@ function App() {
         });
         await invoke("toggle_gemini_panel", {
           visible: isGeminiOpen,
-          x: Math.max(0, viewportWidth - panelWidth),
-          y: 84 + GEMINI_HEADER_HEIGHT,
-          width: panelWidth,
-          height: Math.max(1, height - GEMINI_HEADER_HEIGHT),
+          x: 0,
+          y: 84,
+          width: GEMINI_PANEL_WIDTH,
+          height,
         });
       } catch (reason) {
         setError(String(reason));
@@ -411,64 +394,22 @@ function App() {
           onAddressChange={setAddress}
           onSubmit={navigate}
           onHistoryAction={(action) => void runHistoryAction(action)}
-          onToggleScratchpad={() =>
-            setIsScratchpadOpen((open) => {
-              const next = !open;
-              if (next) setIsGeminiOpen(false);
-              return next;
-            })
-          }
-          onToggleGemini={() =>
-            setIsGeminiOpen((open) => {
-              const next = !open;
-              if (next) setIsScratchpadOpen(false);
-              return next;
-            })
-          }
+          onToggleScratchpad={() => setIsScratchpadOpen((open) => !open)}
+          onToggleGemini={() => setIsGeminiOpen((open) => !open)}
+          onReloadGemini={() => void reloadGemini()}
         />
         {activeTab && <span className="sr-only">{activeTab.title}</span>}
       </header>
       <div ref={viewportRef} className="relative min-h-0 flex-1 overflow-hidden">
-        {isGeminiOpen && (
-          <div
-            className="absolute right-0 top-0 z-20 flex h-9 items-center justify-between border-b border-l border-[var(--border-subtle)] bg-[var(--bg-surface)] px-3"
-            style={{ width: `min(100%, ${GEMINI_PANEL_WIDTH}px)` }}
-          >
-            <span className="flex items-center gap-2 text-xs font-semibold text-[var(--text-primary)]">
-              <Sparkles size={14} className="text-[var(--accent-secondary)]" />
-              Gemini AI
-            </span>
-            <div className="flex items-center gap-1">
-              <button
-                type="button"
-                aria-label="Reload Gemini"
-                title="Reload Gemini"
-                onClick={() => void reloadGemini()}
-                className="flex h-7 w-7 items-center justify-center rounded-md text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
-              >
-                <RotateCw size={14} />
-              </button>
-              <button
-                type="button"
-                aria-label="Close Gemini panel"
-                title="Close Gemini panel"
-                onClick={() => setIsGeminiOpen(false)}
-                className="flex h-7 w-7 items-center justify-center rounded-md text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
-              >
-                <X size={15} />
-              </button>
-            </div>
-          </div>
-        )}
         {activeIsNewTab && (
           <div
             className="h-full min-w-0"
             style={{
-              width: isGeminiOpen
-                ? `max(0px, calc(100% - ${GEMINI_PANEL_WIDTH}px))`
-                : isScratchpadOpen
-                  ? "max(0px, calc(100% - 360px))"
-                  : "100%",
+              marginLeft: isGeminiOpen ? `${GEMINI_PANEL_WIDTH}px` : 0,
+              width: `max(0px, calc(100% - ${
+                (isGeminiOpen ? GEMINI_PANEL_WIDTH : 0) +
+                (isScratchpadOpen ? SCRATCHPAD_WIDTH : 0)
+              }px))`,
             }}
           >
             <NewTabView onNavigate={(url) => void navigateTo(url)} onError={handleError} />

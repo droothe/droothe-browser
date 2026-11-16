@@ -9,8 +9,7 @@ use url::Url;
 
 const TOOLBAR_HEIGHT: f64 = 84.0;
 const SCRATCHPAD_WIDTH: f64 = 360.0;
-const GEMINI_PANEL_WIDTH: f64 = 380.0;
-const GEMINI_HEADER_HEIGHT: f64 = 36.0;
+const GEMINI_PANEL_WIDTH: f64 = 360.0;
 const GEMINI_URL: &str = "https://gemini.google.com";
 const GEMINI_USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
 
@@ -131,7 +130,10 @@ fn active_webview_layout(state: &BrowserState) -> (Option<String>, bool, bool, b
     (active_tab, is_internal, scratchpad_open, gemini_open)
 }
 
-fn child_webview_dimensions(state: &BrowserState, window: &Window) -> Result<(f64, f64), String> {
+fn child_webview_dimensions(
+    state: &BrowserState,
+    window: &Window,
+) -> Result<(f64, f64, f64), String> {
     let (window_width, window_height) = logical_window_dimensions(window)?;
     let gemini_open = *state
         .gemini_open
@@ -141,30 +143,28 @@ fn child_webview_dimensions(state: &BrowserState, window: &Window) -> Result<(f6
         .scratchpad_open
         .lock()
         .map_err(|_| "Scratchpad durumu kullanılamıyor.".to_string())?;
-    let reserved_width = if gemini_open {
-        GEMINI_PANEL_WIDTH
-    } else if scratchpad_open {
+    let left_offset = if gemini_open { GEMINI_PANEL_WIDTH } else { 0.0 };
+    let right_offset = if scratchpad_open {
         SCRATCHPAD_WIDTH
     } else {
         0.0
     };
-    let width = (window_width - reserved_width).max(1.0);
+    let width = (window_width - left_offset - right_offset).max(200.0);
     let height = (window_height - TOOLBAR_HEIGHT).max(1.0);
-    Ok((width, height))
+    Ok((left_offset, width, height))
 }
 
-fn chrome_webview_height(state: &BrowserState, window: &Window) -> Result<f64, String> {
+fn shell_webview_height(state: &BrowserState, window: &Window) -> Result<f64, String> {
     let (_, window_height) = logical_window_dimensions(window)?;
-    let gemini_open = *state
-        .gemini_open
+    let scratchpad_open = *state
+        .scratchpad_open
         .lock()
-        .map_err(|_| "Gemini panel state is unavailable.".to_string())?;
-    let height = if gemini_open {
-        TOOLBAR_HEIGHT + GEMINI_HEADER_HEIGHT
+        .map_err(|_| "Scratchpad durumu kullanılamıyor.".to_string())?;
+    Ok(if scratchpad_open {
+        window_height
     } else {
         TOOLBAR_HEIGHT
-    };
-    Ok(height.min(window_height))
+    })
 }
 
 fn update_gemini_webview_bounds(
@@ -184,13 +184,9 @@ fn update_gemini_webview_bounds(
     }
 
     let width = window_width.min(GEMINI_PANEL_WIDTH).max(1.0);
-    let height = (window_height - TOOLBAR_HEIGHT - GEMINI_HEADER_HEIGHT).max(1.0);
-    let x = (window_width - width).max(0.0);
+    let height = (window_height - TOOLBAR_HEIGHT).max(1.0);
     if let Err(error) = webview
-        .set_position(LogicalPosition::new(
-            x,
-            TOOLBAR_HEIGHT + GEMINI_HEADER_HEIGHT,
-        ))
+        .set_position(LogicalPosition::new(0.0, TOOLBAR_HEIGHT))
         .and_then(|_| webview.set_size(LogicalSize::new(width, height)))
         .and_then(|_| webview.show())
     {
@@ -206,7 +202,7 @@ fn create_tab_webview(
     url: Url,
 ) -> Result<(), String> {
     let label = tab_label(tab_id)?;
-    let (width, height) = child_webview_dimensions(state, window)?;
+    let (x, width, height) = child_webview_dimensions(state, window)?;
     let app_handle = app.clone();
     let load_tab_id = tab_id.to_string();
     let title_app_handle = app.clone();
@@ -264,7 +260,7 @@ fn create_tab_webview(
                         eprintln!("Sekme yükleme durumu gönderilemedi: {error}");
                     }
                 }),
-            LogicalPosition::new(0.0, TOOLBAR_HEIGHT),
+            LogicalPosition::new(x, TOOLBAR_HEIGHT),
             LogicalSize::new(width, height),
         )
         .map_err(|error| format!("Sekme webview'ı oluşturulamadı: {error}"))?;
@@ -336,7 +332,7 @@ fn toggle_gemini_panel(
     if visible
         && (![x, y, width, height].iter().all(|value| value.is_finite())
             || x < 0.0
-            || y < TOOLBAR_HEIGHT + GEMINI_HEADER_HEIGHT
+            || y < TOOLBAR_HEIGHT
             || width <= 0.0
             || height <= 0.0)
     {
@@ -377,11 +373,6 @@ fn toggle_gemini_panel(
             .gemini_open
             .lock()
             .map_err(|_| "Gemini panel state is unavailable.".to_string())? = true;
-        *state
-            .scratchpad_open
-            .lock()
-            .map_err(|_| "Scratchpad durumu kullanılamıyor.".to_string())? = false;
-
         let webview = app
             .get_webview("gemini-sidebar")
             .ok_or_else(|| "Gemini WebView could not be found.".to_string())?;
@@ -466,22 +457,19 @@ fn update_webview_bounds(
         return;
     }
     let window_width = f64::from(physical_size.width) / scale_factor;
-    let reserved_width = if gemini_open {
-        window_width.min(GEMINI_PANEL_WIDTH)
-    } else if scratchpad_open {
+    let left_offset = if gemini_open { GEMINI_PANEL_WIDTH } else { 0.0 };
+    let right_offset = if scratchpad_open {
         SCRATCHPAD_WIDTH
     } else {
         0.0
     };
-    let child_width = (window_width - reserved_width).max(1.0);
+    let child_width = (window_width - left_offset - right_offset).max(200.0);
     let window_height = f64::from(physical_size.height) / scale_factor;
     let height = (window_height - TOOLBAR_HEIGHT).max(1.0);
 
     if let Some(main_webview) = app.get_webview("main") {
-        let main_height = if is_internal {
+        let main_height = if is_internal || scratchpad_open {
             window_height
-        } else if gemini_open {
-            (TOOLBAR_HEIGHT + GEMINI_HEADER_HEIGHT).min(window_height)
         } else {
             TOOLBAR_HEIGHT
         };
@@ -497,16 +485,16 @@ fn update_webview_bounds(
             if let Ok(label) = tab_label(&tab_id) {
                 if let Some(webview) = app.get_webview(&label) {
                     if let Err(error) = webview
-                        .set_position(LogicalPosition::new(0.0, TOOLBAR_HEIGHT))
+                        .set_position(LogicalPosition::new(left_offset, TOOLBAR_HEIGHT))
                         .and_then(|_| webview.set_size(LogicalSize::new(child_width, height)))
                     {
                         eprintln!("Sekme webview boyutu güncellenemedi: {error}");
                     }
                 }
-                update_gemini_webview_bounds(app, gemini_open, window_width, window_height);
             }
         }
     }
+    update_gemini_webview_bounds(app, gemini_open, window_width, window_height);
 }
 
 #[tauri::command]
@@ -574,10 +562,8 @@ fn sync_active_webview_bounds(
         .clone();
     let is_internal = internal_tab.as_deref() == Some(active_tab.as_str());
     if let Some(main_webview) = app.get_webview("main") {
-        let main_height = if is_internal {
+        let main_height = if is_internal || scratchpad_open {
             window_height
-        } else if gemini_open {
-            (TOOLBAR_HEIGHT + GEMINI_HEADER_HEIGHT).min(window_height)
         } else {
             TOOLBAR_HEIGHT
         };
@@ -625,12 +611,12 @@ async fn open_tab(
 
     let url = parse_web_url(&url)?;
     let (width, _) = logical_window_dimensions(&window)?;
-    let chrome_height = chrome_webview_height(&state, &window)?;
+    let shell_height = shell_webview_height(&state, &window)?;
     let main_webview = app
         .get_webview("main")
         .ok_or_else(|| "Ana arayüz webview'ı bulunamadı.".to_string())?;
     main_webview
-        .set_size(LogicalSize::new(width, chrome_height))
+        .set_size(LogicalSize::new(width, shell_height))
         .and_then(|_| main_webview.show())
         .map_err(|error| format!("Tarayıcı araç çubuğu gösterilemedi: {error}"))?;
 
@@ -653,9 +639,9 @@ async fn open_tab(
     let webview = app
         .get_webview(&label)
         .ok_or_else(|| "Sekme webview'ı bulunamadı.".to_string())?;
-    let (child_width, child_height) = child_webview_dimensions(&state, &window)?;
+    let (child_x, child_width, child_height) = child_webview_dimensions(&state, &window)?;
     webview
-        .set_position(LogicalPosition::new(0.0, TOOLBAR_HEIGHT))
+        .set_position(LogicalPosition::new(child_x, TOOLBAR_HEIGHT))
         .and_then(|_| webview.set_size(LogicalSize::new(child_width, child_height)))
         .and_then(|_| webview.show())
         .map_err(|error| format!("Sekme gösterilemedi: {error}"))?;
@@ -685,12 +671,12 @@ async fn navigate_tab(
 
     let url = parse_web_url(&url)?;
     let (width, _) = logical_window_dimensions(&window)?;
-    let chrome_height = chrome_webview_height(&state, &window)?;
+    let shell_height = shell_webview_height(&state, &window)?;
     let main_webview = app
         .get_webview("main")
         .ok_or_else(|| "Ana arayüz webview'ı bulunamadı.".to_string())?;
     main_webview
-        .set_size(LogicalSize::new(width, chrome_height))
+        .set_size(LogicalSize::new(width, shell_height))
         .and_then(|_| main_webview.show())
         .map_err(|error| format!("Tarayıcı araç çubuğu gösterilemedi: {error}"))?;
 
@@ -706,7 +692,7 @@ async fn navigate_tab(
     let webview = app
         .get_webview(&label)
         .ok_or_else(|| "Sekme bulunamadı.".to_string())?;
-    let (child_width, child_height) = child_webview_dimensions(&state, &window)?;
+    let (child_x, child_width, child_height) = child_webview_dimensions(&state, &window)?;
     if let Some(previous_id) = previous_active {
         if previous_id != tab_id {
             if let Ok(previous_label) = tab_label(&previous_id) {
@@ -719,7 +705,7 @@ async fn navigate_tab(
         }
     }
     webview
-        .set_position(LogicalPosition::new(0.0, TOOLBAR_HEIGHT))
+        .set_position(LogicalPosition::new(child_x, TOOLBAR_HEIGHT))
         .and_then(|_| webview.set_size(LogicalSize::new(child_width, child_height)))
         .and_then(|_| webview.show())
         .map_err(|error| format!("Sekme gösterilemedi: {error}"))?;

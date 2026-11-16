@@ -86,6 +86,7 @@ export default function TitleTabBar({
       await currentWindow.toggleMaximize();
       setMaximized(await currentWindow.isMaximized());
     } catch (reason) {
+      console.error("Could not toggle window maximize state.", reason);
       onError(String(reason));
     }
   }
@@ -94,6 +95,7 @@ export default function TitleTabBar({
     try {
       await currentWindow.minimize();
     } catch (reason) {
+      console.error("Could not minimize the window.", reason);
       onError(String(reason));
     }
   }
@@ -102,6 +104,7 @@ export default function TitleTabBar({
     try {
       await currentWindow.close();
     } catch (reason) {
+      console.error("Could not close the window.", reason);
       onError(String(reason));
     }
   }
@@ -165,8 +168,9 @@ export default function TitleTabBar({
           type="button"
           aria-label="Minimize window"
           title="Minimize"
+          onMouseDown={(event) => event.stopPropagation()}
           onClick={() => void minimize()}
-          className="flex h-8 w-10 items-center justify-center rounded-md text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
+          className="relative z-50 pointer-events-auto flex h-8 w-10 items-center justify-center rounded-md text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
         >
           <Minus size={15} />
         </button>
@@ -174,8 +178,9 @@ export default function TitleTabBar({
           type="button"
           aria-label={maximized ? "Restore window" : "Maximize window"}
           title={maximized ? "Restore" : "Maximize"}
+          onMouseDown={(event) => event.stopPropagation()}
           onClick={() => void toggleMaximize()}
-          className="flex h-8 w-10 items-center justify-center rounded-md text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
+          className="relative z-50 pointer-events-auto flex h-8 w-10 items-center justify-center rounded-md text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
         >
           {maximized ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
         </button>
@@ -183,8 +188,9 @@ export default function TitleTabBar({
           type="button"
           aria-label="Close window"
           title="Close"
+          onMouseDown={(event) => event.stopPropagation()}
           onClick={() => void closeWindow()}
-          className="flex h-8 w-10 items-center justify-center rounded-md text-[var(--text-secondary)] transition-colors hover:bg-rose-500 hover:text-white"
+          className="relative z-50 pointer-events-auto flex h-8 w-10 items-center justify-center rounded-md text-[var(--text-secondary)] transition-colors hover:bg-rose-500 hover:text-white"
         >
           <X size={16} />
         </button>
