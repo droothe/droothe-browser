@@ -6,6 +6,7 @@ import {
   RotateCw,
   Settings,
   ShieldCheck,
+  Sparkles,
   StickyNote,
   X,
 } from "lucide-react";
@@ -19,11 +20,13 @@ type NavigationBarProps = {
   isNewTab: boolean;
   loading: boolean;
   scratchpadOpen: boolean;
+  geminiOpen: boolean;
   error: string;
   onAddressChange: (value: string) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
   onHistoryAction: (action: "goBack" | "goForward" | "reload" | "stop") => void;
   onToggleScratchpad: () => void;
+  onToggleGemini: () => void;
 };
 
 function ToolbarButton({
@@ -58,11 +61,13 @@ export default function NavigationBar({
   isNewTab,
   loading,
   scratchpadOpen,
+  geminiOpen,
   error,
   onAddressChange,
   onSubmit,
   onHistoryAction,
   onToggleScratchpad,
+  onToggleGemini,
 }: NavigationBarProps) {
   const isSecure = address.trim().toLowerCase().startsWith("https://");
 
@@ -150,6 +155,20 @@ export default function NavigationBar({
         </div>
 
         <div className="flex shrink-0 items-center gap-1">
+          <button
+            type="button"
+            aria-label="Toggle Gemini AI panel"
+            title="Gemini AI (Alt+G)"
+            aria-pressed={geminiOpen}
+            onClick={onToggleGemini}
+            className={`flex h-8 w-8 items-center justify-center rounded-lg transition-colors duration-150 hover:bg-[var(--bg-hover)] ${
+              geminiOpen
+                ? "text-[var(--accent-primary)]"
+                : "text-[var(--text-secondary)] hover:text-[var(--accent-secondary)]"
+            }`}
+          >
+            <Sparkles size={16} />
+          </button>
           <ThemeSwitcher />
           <button
             type="button"

@@ -9,12 +9,17 @@ use url::Url;
 
 const TOOLBAR_HEIGHT: f64 = 84.0;
 const SCRATCHPAD_WIDTH: f64 = 360.0;
+const GEMINI_PANEL_WIDTH: f64 = 380.0;
+const GEMINI_HEADER_HEIGHT: f64 = 36.0;
+const GEMINI_URL: &str = "https://gemini.google.com";
+const GEMINI_USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
 
 #[derive(Default)]
 struct BrowserState {
     active_tab: Mutex<Option<String>>,
     internal_tab: Mutex<Option<String>>,
     scratchpad_open: Mutex<bool>,
+    gemini_open: Mutex<bool>,
 }
 
 #[derive(Clone, Serialize)]
@@ -89,7 +94,7 @@ fn set_active_tab(state: &BrowserState, tab_id: String, is_internal: bool) -> Re
     Ok(())
 }
 
-fn active_webview_layout(state: &BrowserState) -> (Option<String>, bool, bool) {
+fn active_webview_layout(state: &BrowserState) -> (Option<String>, bool, bool, bool) {
     let active_tab = state
         .active_tab
         .lock()
@@ -106,6 +111,14 @@ fn active_webview_layout(state: &BrowserState) -> (Option<String>, bool, bool) {
             eprintln!("Dahili sekme durumu okunamadı: {error}");
             None
         });
+    let gemini_open = state
+        .gemini_open
+        .lock()
+        .map(|open| *open)
+        .unwrap_or_else(|error| {
+            eprintln!("Gemini panel state could not be read: {error}");
+            false
+        });
     let scratchpad_open = state
         .scratchpad_open
         .lock()
@@ -115,24 +128,74 @@ fn active_webview_layout(state: &BrowserState) -> (Option<String>, bool, bool) {
             false
         });
     let is_internal = active_tab.is_some() && active_tab == internal_tab;
-    (active_tab, is_internal, scratchpad_open)
+    (active_tab, is_internal, scratchpad_open, gemini_open)
 }
 
 fn child_webview_dimensions(state: &BrowserState, window: &Window) -> Result<(f64, f64), String> {
     let (window_width, window_height) = logical_window_dimensions(window)?;
+    let gemini_open = *state
+        .gemini_open
+        .lock()
+        .map_err(|_| "Gemini panel state is unavailable.".to_string())?;
     let scratchpad_open = *state
         .scratchpad_open
         .lock()
         .map_err(|_| "Scratchpad durumu kullanılamıyor.".to_string())?;
-    let width = (window_width
-        - if scratchpad_open {
-            SCRATCHPAD_WIDTH
-        } else {
-            0.0
-        })
-    .max(1.0);
+    let reserved_width = if gemini_open {
+        GEMINI_PANEL_WIDTH
+    } else if scratchpad_open {
+        SCRATCHPAD_WIDTH
+    } else {
+        0.0
+    };
+    let width = (window_width - reserved_width).max(1.0);
     let height = (window_height - TOOLBAR_HEIGHT).max(1.0);
     Ok((width, height))
+}
+
+fn chrome_webview_height(state: &BrowserState, window: &Window) -> Result<f64, String> {
+    let (_, window_height) = logical_window_dimensions(window)?;
+    let gemini_open = *state
+        .gemini_open
+        .lock()
+        .map_err(|_| "Gemini panel state is unavailable.".to_string())?;
+    let height = if gemini_open {
+        TOOLBAR_HEIGHT + GEMINI_HEADER_HEIGHT
+    } else {
+        TOOLBAR_HEIGHT
+    };
+    Ok(height.min(window_height))
+}
+
+fn update_gemini_webview_bounds(
+    app: &AppHandle,
+    open: bool,
+    window_width: f64,
+    window_height: f64,
+) {
+    let Some(webview) = app.get_webview("gemini-sidebar") else {
+        return;
+    };
+    if !open {
+        if let Err(error) = webview.hide() {
+            eprintln!("Gemini panel could not be hidden: {error}");
+        }
+        return;
+    }
+
+    let width = window_width.min(GEMINI_PANEL_WIDTH).max(1.0);
+    let height = (window_height - TOOLBAR_HEIGHT - GEMINI_HEADER_HEIGHT).max(1.0);
+    let x = (window_width - width).max(0.0);
+    if let Err(error) = webview
+        .set_position(LogicalPosition::new(
+            x,
+            TOOLBAR_HEIGHT + GEMINI_HEADER_HEIGHT,
+        ))
+        .and_then(|_| webview.set_size(LogicalSize::new(width, height)))
+        .and_then(|_| webview.show())
+    {
+        eprintln!("Gemini panel bounds could not be updated: {error}");
+    }
 }
 
 fn create_tab_webview(
@@ -163,6 +226,7 @@ fn create_tab_webview(
     else if ((event.key === "F5" && !modifier) || (modifier && !event.shiftKey && key === "r")) shortcut = "reload";
     else if (event.key === "F6" && !modifier) shortcut = "focus-address";
     else if (event.key === '"' && !isTypingTarget) shortcut = "toggle-scratchpad";
+    else if (event.altKey && !modifier && !event.shiftKey && key === "g") shortcut = "toggle-gemini";
     else if (modifier && key === "tab") shortcut = event.shiftKey ? "previous-tab" : "next-tab";
     else if (modifier && !event.shiftKey && /^[1-9]$/.test(event.key)) shortcut = `tab-${event.key}`;
     if (!shortcut) return;
@@ -222,6 +286,7 @@ fn dispatch_browser_shortcut(
             | "reload"
             | "focus-address"
             | "toggle-scratchpad"
+            | "toggle-gemini"
             | "next-tab"
             | "previous-tab"
             | "tab-1"
@@ -241,15 +306,113 @@ fn dispatch_browser_shortcut(
     let active_tab = state
         .active_tab
         .lock()
-        .map_err(|_| "Sekme durumu kullanılamıyor.".to_string())?;
-    if active_tab.as_deref() != Some(tab_id.as_str()) {
+        .map_err(|_| "Sekme durumu kullanılamıyor.".to_string())?
+        .clone();
+    if shortcut != "toggle-gemini" && active_tab.as_deref() != Some(tab_id.as_str()) {
         return Ok(());
     }
+    let tab_id = if shortcut == "toggle-gemini" {
+        active_tab.ok_or_else(|| "Etkin sekme bulunamadı.".to_string())?
+    } else {
+        tab_id
+    };
     app.emit(
         "browser-shortcut",
         BrowserShortcutEvent { tab_id, shortcut },
     )
     .map_err(|error| format!("Tarayıcı kısayolu gönderilemedi: {error}"))
+}
+
+#[tauri::command]
+fn toggle_gemini_panel(
+    app: AppHandle,
+    state: State<'_, BrowserState>,
+    visible: bool,
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+) -> Result<(), String> {
+    if visible
+        && (![x, y, width, height].iter().all(|value| value.is_finite())
+            || x < 0.0
+            || y < TOOLBAR_HEIGHT + GEMINI_HEADER_HEIGHT
+            || width <= 0.0
+            || height <= 0.0)
+    {
+        return Err("Gemini panel bounds are invalid.".into());
+    }
+
+    if visible {
+        let window = app
+            .get_window("main")
+            .ok_or_else(|| "Ana pencere bulunamadı.".to_string())?;
+        if app.get_webview("gemini-sidebar").is_none() {
+            let url = Url::parse(GEMINI_URL)
+                .map_err(|error| format!("Gemini address is invalid: {error}"))?;
+            let shortcut_script = r#"(() => {
+  document.addEventListener("keydown", (event) => {
+    if (!event.altKey || event.ctrlKey || event.metaKey || event.shiftKey || event.key.toLowerCase() !== "g") return;
+    event.preventDefault();
+    event.stopPropagation();
+    const invoke = window.__TAURI_INTERNALS__?.invoke;
+    if (typeof invoke === "function") {
+      void invoke("dispatch_browser_shortcut", { tabId: "", shortcut: "toggle-gemini" })
+        .catch((error) => console.error("Browser shortcut failed:", error));
+    }
+  }, true);
+})();"#;
+            window
+                .add_child(
+                    WebviewBuilder::new("gemini-sidebar", WebviewUrl::External(url))
+                        .initialization_script(shortcut_script)
+                        .user_agent(GEMINI_USER_AGENT),
+                    LogicalPosition::new(x, y),
+                    LogicalSize::new(width, height),
+                )
+                .map_err(|error| format!("Gemini WebView could not be created: {error}"))?;
+        }
+
+        *state
+            .gemini_open
+            .lock()
+            .map_err(|_| "Gemini panel state is unavailable.".to_string())? = true;
+        *state
+            .scratchpad_open
+            .lock()
+            .map_err(|_| "Scratchpad durumu kullanılamıyor.".to_string())? = false;
+
+        let webview = app
+            .get_webview("gemini-sidebar")
+            .ok_or_else(|| "Gemini WebView could not be found.".to_string())?;
+        webview
+            .set_position(LogicalPosition::new(x, y))
+            .and_then(|_| webview.set_size(LogicalSize::new(width, height)))
+            .and_then(|_| webview.show())
+            .map_err(|error| format!("Gemini panel could not be shown: {error}"))?;
+    } else {
+        *state
+            .gemini_open
+            .lock()
+            .map_err(|_| "Gemini panel state is unavailable.".to_string())? = false;
+        if let Some(webview) = app.get_webview("gemini-sidebar") {
+            webview
+                .hide()
+                .map_err(|error| format!("Gemini panel could not be hidden: {error}"))?;
+        }
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
+fn reload_gemini_panel(app: AppHandle) -> Result<(), String> {
+    let webview = app
+        .get_webview("gemini-sidebar")
+        .ok_or_else(|| "Gemini panel has not been opened yet.".to_string())?;
+    webview
+        .reload()
+        .map_err(|error| format!("Gemini panel could not be reloaded: {error}"))
 }
 
 fn show_internal_tab(
@@ -294,6 +457,7 @@ fn update_webview_bounds(
     tab_id: Option<String>,
     is_internal: bool,
     scratchpad_open: bool,
+    gemini_open: bool,
     physical_size: PhysicalSize<u32>,
     scale_factor: f64,
 ) {
@@ -302,24 +466,30 @@ fn update_webview_bounds(
         return;
     }
     let window_width = f64::from(physical_size.width) / scale_factor;
-    let child_width = (window_width
-        - if scratchpad_open {
-            SCRATCHPAD_WIDTH
-        } else {
-            0.0
-        })
-    .max(1.0);
+    let reserved_width = if gemini_open {
+        window_width.min(GEMINI_PANEL_WIDTH)
+    } else if scratchpad_open {
+        SCRATCHPAD_WIDTH
+    } else {
+        0.0
+    };
+    let child_width = (window_width - reserved_width).max(1.0);
     let window_height = f64::from(physical_size.height) / scale_factor;
     let height = (window_height - TOOLBAR_HEIGHT).max(1.0);
 
     if let Some(main_webview) = app.get_webview("main") {
         let main_height = if is_internal {
             window_height
+        } else if gemini_open {
+            (TOOLBAR_HEIGHT + GEMINI_HEADER_HEIGHT).min(window_height)
         } else {
             TOOLBAR_HEIGHT
         };
-        if let Err(error) = main_webview.set_size(LogicalSize::new(window_width, main_height)) {
-            eprintln!("Ana arayüz boyutu güncellenemedi: {error}");
+        if let Err(error) = main_webview
+            .set_position(LogicalPosition::new(0.0, 0.0))
+            .and_then(|_| main_webview.set_size(LogicalSize::new(window_width, main_height)))
+        {
+            eprintln!("Ana arayüz bounds güncellenemedi: {error}");
         }
     }
     if !is_internal {
@@ -333,6 +503,7 @@ fn update_webview_bounds(
                         eprintln!("Sekme webview boyutu güncellenemedi: {error}");
                     }
                 }
+                update_gemini_webview_bounds(app, gemini_open, window_width, window_height);
             }
         }
     }
@@ -365,6 +536,7 @@ fn sync_active_webview_bounds(
     width: f64,
     height: f64,
     scratchpad_open: bool,
+    gemini_open: bool,
 ) -> Result<(), String> {
     if ![x, y, width, height].iter().all(|value| value.is_finite())
         || x < 0.0
@@ -379,6 +551,15 @@ fn sync_active_webview_bounds(
         .scratchpad_open
         .lock()
         .map_err(|_| "Scratchpad durumu kullanılamıyor.".to_string())? = scratchpad_open;
+    *state
+        .gemini_open
+        .lock()
+        .map_err(|_| "Gemini panel state is unavailable.".to_string())? = gemini_open;
+
+    let window = app
+        .get_window("main")
+        .ok_or_else(|| "Ana pencere bulunamadı.".to_string())?;
+    let (window_width, window_height) = logical_window_dimensions(&window)?;
 
     let active_tab = state
         .active_tab
@@ -391,7 +572,23 @@ fn sync_active_webview_bounds(
         .lock()
         .map_err(|_| "Dahili sekme durumu kullanılamıyor.".to_string())?
         .clone();
-    if internal_tab.as_deref() == Some(active_tab.as_str()) {
+    let is_internal = internal_tab.as_deref() == Some(active_tab.as_str());
+    if let Some(main_webview) = app.get_webview("main") {
+        let main_height = if is_internal {
+            window_height
+        } else if gemini_open {
+            (TOOLBAR_HEIGHT + GEMINI_HEADER_HEIGHT).min(window_height)
+        } else {
+            TOOLBAR_HEIGHT
+        };
+        main_webview
+            .set_position(LogicalPosition::new(0.0, 0.0))
+            .and_then(|_| main_webview.set_size(LogicalSize::new(window_width, main_height)))
+            .map_err(|error| format!("Ana arayüz bounds eşitlenemedi: {error}"))?;
+    }
+    update_gemini_webview_bounds(&app, gemini_open, window_width, window_height);
+
+    if is_internal {
         return Ok(());
     }
 
@@ -428,11 +625,12 @@ async fn open_tab(
 
     let url = parse_web_url(&url)?;
     let (width, _) = logical_window_dimensions(&window)?;
+    let chrome_height = chrome_webview_height(&state, &window)?;
     let main_webview = app
         .get_webview("main")
         .ok_or_else(|| "Ana arayüz webview'ı bulunamadı.".to_string())?;
     main_webview
-        .set_size(LogicalSize::new(width, TOOLBAR_HEIGHT))
+        .set_size(LogicalSize::new(width, chrome_height))
         .and_then(|_| main_webview.show())
         .map_err(|error| format!("Tarayıcı araç çubuğu gösterilemedi: {error}"))?;
 
@@ -487,11 +685,12 @@ async fn navigate_tab(
 
     let url = parse_web_url(&url)?;
     let (width, _) = logical_window_dimensions(&window)?;
+    let chrome_height = chrome_webview_height(&state, &window)?;
     let main_webview = app
         .get_webview("main")
         .ok_or_else(|| "Ana arayüz webview'ı bulunamadı.".to_string())?;
     main_webview
-        .set_size(LogicalSize::new(width, TOOLBAR_HEIGHT))
+        .set_size(LogicalSize::new(width, chrome_height))
         .and_then(|_| main_webview.show())
         .map_err(|error| format!("Tarayıcı araç çubuğu gösterilemedi: {error}"))?;
 
@@ -562,7 +761,9 @@ pub fn run() {
             close_tab,
             history_tab,
             sync_active_webview_bounds,
-            dispatch_browser_shortcut
+            dispatch_browser_shortcut,
+            toggle_gemini_panel,
+            reload_gemini_panel
         ])
         .setup(|app| {
             let window = app
@@ -583,13 +784,14 @@ pub fn run() {
                 WindowEvent::Resized(physical_size) => match resize_window.scale_factor() {
                     Ok(scale_factor) => {
                         let state = app_handle.state::<BrowserState>();
-                        let (active_tab, is_internal, scratchpad_open) =
+                        let (active_tab, is_internal, scratchpad_open, gemini_open) =
                             active_webview_layout(&state);
                         update_webview_bounds(
                             &app_handle,
                             active_tab,
                             is_internal,
                             scratchpad_open,
+                            gemini_open,
                             *physical_size,
                             scale_factor,
                         );
@@ -602,12 +804,14 @@ pub fn run() {
                     ..
                 } => {
                     let state = app_handle.state::<BrowserState>();
-                    let (active_tab, is_internal, scratchpad_open) = active_webview_layout(&state);
+                    let (active_tab, is_internal, scratchpad_open, gemini_open) =
+                        active_webview_layout(&state);
                     update_webview_bounds(
                         &app_handle,
                         active_tab,
                         is_internal,
                         scratchpad_open,
+                        gemini_open,
                         *new_inner_size,
                         *scale_factor,
                     );

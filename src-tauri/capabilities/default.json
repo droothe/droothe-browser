@@ -3,7 +3,7 @@
   "identifier": "default",
   "description": "Droothe Browser ana arayüzü ve web sekmeleri için yetkiler.",
   "windows": ["main"],
-  "webviews": ["main", "tab-*"],
+  "webviews": ["main", "tab-*", "gemini-sidebar"],
   "permissions": [
     "core:default",
     "core:webview:allow-create-webview",
