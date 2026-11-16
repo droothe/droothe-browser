@@ -11,12 +11,14 @@ import {
   X,
 } from "lucide-react";
 import { FormEvent, ReactNode, RefObject } from "react";
+import ShieldsPopover from "./ShieldsPopover";
 import ThemeSwitcher from "./ThemeSwitcher";
 
 type NavigationBarProps = {
   address: string;
   addressInputRef: RefObject<HTMLInputElement | null>;
   activeId: string | null;
+  activeUrl: string;
   isNewTab: boolean;
   loading: boolean;
   scratchpadOpen: boolean;
@@ -28,6 +30,7 @@ type NavigationBarProps = {
   onToggleScratchpad: () => void;
   onToggleGemini: () => void;
   onReloadGemini: () => void;
+  onError: (message: string) => void;
 };
 
 function ToolbarButton({
@@ -59,6 +62,7 @@ export default function NavigationBar({
   address,
   addressInputRef,
   activeId,
+  activeUrl,
   isNewTab,
   loading,
   scratchpadOpen,
@@ -70,6 +74,7 @@ export default function NavigationBar({
   onToggleScratchpad,
   onToggleGemini,
   onReloadGemini,
+  onError,
 }: NavigationBarProps) {
   const isSecure = address.trim().toLowerCase().startsWith("https://");
 
@@ -130,6 +135,12 @@ export default function NavigationBar({
               </span>
             )}
             <div className="ml-2 flex shrink-0 items-center gap-0.5 border-l border-[var(--border-subtle)] pl-1.5">
+              <ShieldsPopover
+                activeId={activeId}
+                url={activeUrl}
+                onReload={() => onHistoryAction("reload")}
+                onError={onError}
+              />
               <button
                 type="button"
                 aria-label="Droothe Vault"

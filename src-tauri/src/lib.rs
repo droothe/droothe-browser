@@ -1,3 +1,5 @@
+mod shields;
+
 use serde::Serialize;
 use std::sync::Mutex;
 use tauri::{
@@ -207,6 +209,8 @@ fn create_tab_webview(
     let load_tab_id = tab_id.to_string();
     let title_app_handle = app.clone();
     let title_tab_id = tab_id.to_string();
+    let shields_app_handle = app.clone();
+    let navigation_tab_id = tab_id.to_string();
     let shortcut_script = r#"(() => {
   const tabId = "__TAB_ID__";
   document.addEventListener("keydown", (event) => {
@@ -241,6 +245,34 @@ fn create_tab_webview(
         .add_child(
             WebviewBuilder::new(label, WebviewUrl::External(url))
                 .initialization_script(&shortcut_script)
+                .initialization_script(&shields_initialization_script(tab_id))
+                .on_navigation(move |url| {
+                    let shields_state = shields_app_handle.state::<shields::ShieldsState>();
+                    match shields::check_request(
+                        &shields_state,
+                        url.as_str(),
+                        url.as_str(),
+                        "document",
+                        "GET",
+                    ) {
+                        Ok(true) => {
+                            if let Err(error) = record_shields_block(
+                                &shields_app_handle,
+                                &shields_state,
+                                &navigation_tab_id,
+                                1,
+                            ) {
+                                eprintln!("Blocked navigation could not be recorded: {error}");
+                            }
+                            false
+                        }
+                        Ok(false) => true,
+                        Err(error) => {
+                            eprintln!("Navigation request could not be checked: {error}");
+                            true
+                        }
+                    }
+                })
                 .on_document_title_changed(move |_, title| {
                     if let Err(error) = title_app_handle.emit(
                         "tab-title-updated",
@@ -265,6 +297,256 @@ fn create_tab_webview(
         )
         .map_err(|error| format!("Sekme webview'ı oluşturulamadı: {error}"))?;
     Ok(())
+}
+
+fn shields_initialization_script(tab_id: &str) -> String {
+    r#"(() => {
+  const tabId = "__TAB_ID__";
+  const invoke = window.__TAURI_INTERNALS__?.invoke;
+  if (typeof invoke !== "function") return;
+  const nativeInvoke = (command, args) => invoke(command, args);
+  const isHttpUrl = (value) => /^https?:\/\//i.test(String(value));
+  const resolveUrl = (value) => new URL(String(value), window.location.href).href;
+
+  const checkRequest = (url, requestType, method) => {
+    const absoluteUrl = resolveUrl(url);
+    if (!isHttpUrl(absoluteUrl)) return Promise.resolve(false);
+    return nativeInvoke("check_network_request", {
+      tabId,
+      sourceUrl: window.location.href,
+      requestUrl: absoluteUrl,
+      requestType,
+      method: method || "GET"
+    });
+  };
+
+  const nativeFetch = window.fetch;
+  window.fetch = function(input, init) {
+    const url = resolveUrl(typeof input === "string" || input instanceof URL ? input : input.url);
+    const method = init?.method || (input instanceof Request ? input.method : "GET");
+    if (!isHttpUrl(url)) return nativeFetch.apply(this, arguments);
+    return checkRequest(url, "fetch", method).then(
+      (blocked) => blocked
+        ? new Response(null, { status: 204, statusText: "Blocked by Droothe Shields" })
+        : nativeFetch.apply(this, arguments),
+      (error) => {
+        console.error("Droothe Shields request check failed:", error);
+        return nativeFetch.apply(this, arguments);
+      }
+    );
+  };
+
+  const xhr = XMLHttpRequest.prototype;
+  const nativeOpen = xhr.open;
+  const nativeSend = xhr.send;
+  xhr.open = function(method, url, async) {
+    this.__drootheUrl = resolveUrl(url);
+    this.__drootheMethod = String(method || "GET");
+    this.__drootheAsync = async !== false;
+    return nativeOpen.apply(this, arguments);
+  };
+  xhr.send = function() {
+    if (!this.__drootheAsync || !isHttpUrl(this.__drootheUrl)) {
+      return nativeSend.apply(this, arguments);
+    }
+    const request = this;
+    const args = arguments;
+    void checkRequest(request.__drootheUrl, "xmlhttprequest", request.__drootheMethod).then(
+      (blocked) => {
+        if (blocked) request.abort();
+        else nativeSend.apply(request, args);
+      },
+      (error) => {
+        console.error("Droothe Shields XHR check failed:", error);
+        nativeSend.apply(request, args);
+      }
+    );
+  };
+
+  const nativeAppendChild = Node.prototype.appendChild;
+  const nativeInsertBefore = Node.prototype.insertBefore;
+  const insertScript = (parent, script, reference, insert) => {
+    const source = script.src;
+    if (!(script instanceof HTMLScriptElement) || !source || !isHttpUrl(source)) {
+      return insert.call(parent, script, reference);
+    }
+    if (script.__drootheChecked === source) return insert.call(parent, script, reference);
+    script.__drootheChecked = source;
+    void checkRequest(source, "script", "GET").then(
+      (blocked) => {
+        if (blocked) {
+          script.dispatchEvent(new Event("error"));
+          return;
+        }
+        insert.call(parent, script, reference);
+      },
+      (error) => {
+        console.error("Droothe Shields script check failed:", error);
+        insert.call(parent, script, reference);
+      }
+    );
+    return script;
+  };
+  Node.prototype.appendChild = function(child) {
+    if (child instanceof HTMLScriptElement && child.src && isHttpUrl(child.src)) {
+      return insertScript(this, child, null, nativeAppendChild);
+    }
+    return nativeAppendChild.call(this, child);
+  };
+  Node.prototype.insertBefore = function(child, reference) {
+    if (child instanceof HTMLScriptElement && child.src && isHttpUrl(child.src)) {
+      return insertScript(this, child, reference, nativeInsertBefore);
+    }
+    return nativeInsertBefore.call(this, child, reference);
+  };
+
+  const commonSelectors = [
+    '[id^="google_ads"]', ".adsbygoogle", "[data-ad-slot]", ".ad-banner",
+    ".advertisement", '[aria-label="Advertisement"]', '[class*="reklam"]',
+    '[id*="reklam"]'
+  ];
+  const installCosmetics = async () => {
+    try {
+      const status = await nativeInvoke("get_shields_status", {
+        tabId,
+        url: window.location.href
+      });
+      if (!status.enabled || !status.siteEnabled) return;
+      const payload = await nativeInvoke("get_cosmetic_resources", {
+        url: window.location.href
+      });
+      const selectors = Array.from(new Set([
+        ...payload.hideSelectors,
+        ...payload.styleSelectors,
+        ...commonSelectors
+      ]));
+      let injectedScript = false;
+      const applyStyle = () => {
+        const root = document.head || document.documentElement;
+        if (!root) return;
+        let style = document.getElementById("droothe-shields-cosmetic");
+        if (!style) {
+          style = document.createElement("style");
+          style.id = "droothe-shields-cosmetic";
+          root.appendChild(style);
+        }
+        const css = selectors.map((selector) =>
+          `${selector}{display:none!important;visibility:hidden!important;height:0!important;min-height:0!important;margin:0!important;padding:0!important}`
+        ).join("\n");
+        if (style.textContent !== css) style.textContent = css;
+        if (payload.injectedScript && !injectedScript) {
+          const script = document.createElement("script");
+          script.textContent = payload.injectedScript;
+          root.appendChild(script);
+          injectedScript = true;
+        }
+        document.querySelectorAll(commonSelectors.join(",")).forEach((element) => {
+          if (!element.children.length && !element.textContent.trim()) {
+            element.style.setProperty("display", "none", "important");
+            element.style.setProperty("height", "0", "important");
+          }
+        });
+      };
+      applyStyle();
+      let timer;
+      const observer = new MutationObserver(() => {
+        clearTimeout(timer);
+        timer = setTimeout(applyStyle, 120);
+      });
+      if (document.documentElement) {
+        observer.observe(document.documentElement, { childList: true, subtree: true });
+      }
+    } catch (error) {
+      console.error("Droothe Shields cosmetic filtering failed:", error);
+    }
+  };
+  void installCosmetics();
+})();"#
+        .replace("__TAB_ID__", tab_id)
+}
+
+fn record_shields_block(
+    app: &AppHandle,
+    state: &shields::ShieldsState,
+    tab_id: &str,
+    count: u32,
+) -> Result<u32, String> {
+    let blocked_count = shields::record_blocked(state, tab_id, count)?;
+    if let Err(error) = app.emit(
+        "shields-status-updated",
+        ShieldsStatusUpdated {
+            tab_id: tab_id.to_string(),
+            blocked_count,
+        },
+    ) {
+        eprintln!("Shields status event could not be sent: {error}");
+    }
+    Ok(blocked_count)
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ShieldsStatusUpdated {
+    tab_id: String,
+    blocked_count: u32,
+}
+
+#[tauri::command]
+fn get_shields_status(
+    state: State<'_, shields::ShieldsState>,
+    tab_id: String,
+    url: String,
+) -> Result<shields::ShieldsStatus, String> {
+    tab_label(&tab_id)?;
+    shields::get_status(&state, &tab_id, &url)
+}
+
+#[tauri::command]
+fn toggle_site_shields(
+    state: State<'_, shields::ShieldsState>,
+    tab_id: String,
+    url: String,
+) -> Result<shields::ShieldsStatus, String> {
+    tab_label(&tab_id)?;
+    shields::toggle_site(&state, &tab_id, &url)
+}
+
+#[tauri::command]
+fn get_cosmetic_resources(
+    state: State<'_, shields::ShieldsState>,
+    url: String,
+) -> Result<shields::CosmeticPayload, String> {
+    shields::cosmetic_resources(&state, &url)
+}
+
+#[tauri::command]
+fn check_network_request(
+    app: AppHandle,
+    state: State<'_, shields::ShieldsState>,
+    tab_id: String,
+    source_url: String,
+    request_url: String,
+    request_type: String,
+    method: String,
+) -> Result<bool, String> {
+    tab_label(&tab_id)?;
+    let blocked =
+        shields::check_request(&state, &source_url, &request_url, &request_type, &method)?;
+    if blocked {
+        record_shields_block(&app, &state, &tab_id, 1)?;
+    }
+    Ok(blocked)
+}
+
+#[tauri::command]
+fn record_blocked_request(
+    app: AppHandle,
+    state: State<'_, shields::ShieldsState>,
+    tab_id: String,
+    count: u32,
+) -> Result<u32, String> {
+    tab_label(&tab_id)?;
+    record_shields_block(&app, &state, &tab_id, count)
 }
 
 #[tauri::command]
@@ -713,12 +995,20 @@ async fn navigate_tab(
 }
 
 #[tauri::command]
-fn close_tab(app: AppHandle, state: State<'_, BrowserState>, tab_id: String) -> Result<(), String> {
+fn close_tab(
+    app: AppHandle,
+    state: State<'_, BrowserState>,
+    shields_state: State<'_, shields::ShieldsState>,
+    tab_id: String,
+) -> Result<(), String> {
     let label = tab_label(&tab_id)?;
     if let Some(webview) = app.get_webview(&label) {
         webview
             .close()
             .map_err(|error| format!("Sekme kapatılamadı: {error}"))?;
+    }
+    if let Err(error) = shields::clear_tab(&shields_state, &tab_id) {
+        eprintln!("Closed tab Shields state could not be cleared: {error}");
     }
 
     let mut active_tab = state
@@ -741,6 +1031,7 @@ fn close_tab(app: AppHandle, state: State<'_, BrowserState>, tab_id: String) -> 
 pub fn run() {
     tauri::Builder::default()
         .manage(BrowserState::default())
+        .manage(shields::ShieldsState::default())
         .invoke_handler(tauri::generate_handler![
             open_tab,
             navigate_tab,
@@ -749,7 +1040,12 @@ pub fn run() {
             sync_active_webview_bounds,
             dispatch_browser_shortcut,
             toggle_gemini_panel,
-            reload_gemini_panel
+            reload_gemini_panel,
+            get_shields_status,
+            toggle_site_shields,
+            get_cosmetic_resources,
+            check_network_request,
+            record_blocked_request
         ])
         .setup(|app| {
             let window = app

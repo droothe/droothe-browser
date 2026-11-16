@@ -1,0 +1,19 @@
+! Droothe Shields offline starter rules
+! Compact first-run rules; full EasyList, EasyPrivacy, and Turkish subscriptions are not bundled.
+||doubleclick.net^
+||googlesyndication.com^
+||googleadservices.com^
+||googletagservices.com^
+||adnxs.com^
+||amazon-adsystem.com^
+||taboola.com^
+||outbrain.com^
+||scorecardresearch.com^
+||hotjar.com^
+##.adsbygoogle
+##[data-ad-slot]
+##.ad-banner
+##.advertisement
+##[id^="google_ads"]
+##[class*="reklam"]
+##[id*="reklam"]

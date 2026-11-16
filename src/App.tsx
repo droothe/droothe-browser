@@ -386,6 +386,7 @@ function App() {
           address={address}
           addressInputRef={addressInputRef}
           activeId={activeId}
+          activeUrl={activeTab?.url ?? ""}
           isNewTab={activeIsNewTab}
           loading={activeLoading}
           scratchpadOpen={isScratchpadOpen}
@@ -397,6 +398,7 @@ function App() {
           onToggleScratchpad={() => setIsScratchpadOpen((open) => !open)}
           onToggleGemini={() => setIsGeminiOpen((open) => !open)}
           onReloadGemini={() => void reloadGemini()}
+          onError={handleError}
         />
         {activeTab && <span className="sr-only">{activeTab.title}</span>}
       </header>
