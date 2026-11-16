@@ -1,6 +1,7 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { Globe, Maximize2, Minimize2, Minus, Plus, X } from "lucide-react";
 import { useEffect, useState } from "react";
+import DrootheLogo from "./DrootheLogo";
 
 const currentWindow = getCurrentWindow();
 
@@ -107,6 +108,9 @@ export default function TitleTabBar({
 
   return (
     <div className="flex h-10 min-h-10 items-center gap-1 border-b border-[var(--border-subtle)] bg-[var(--bg-shell)] px-2">
+      <span className="shrink-0" title="Droothe Browser">
+        <DrootheLogo size={24} className="rounded-md" />
+      </span>
       <div className="flex h-full min-w-0 flex-1 items-center overflow-hidden">
         <div className="flex h-full min-w-0 flex-1 items-end gap-0.5 overflow-x-auto">
           {tabs.map((tab) => {
