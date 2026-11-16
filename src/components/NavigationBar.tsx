@@ -9,12 +9,14 @@ import {
   StickyNote,
   X,
 } from "lucide-react";
-import { FormEvent, ReactNode, useRef } from "react";
+import { FormEvent, ReactNode, RefObject } from "react";
 import ThemeSwitcher from "./ThemeSwitcher";
 
 type NavigationBarProps = {
   address: string;
+  addressInputRef: RefObject<HTMLInputElement | null>;
   activeId: string | null;
+  isNewTab: boolean;
   loading: boolean;
   error: string;
   onAddressChange: (value: string) => void;
@@ -49,14 +51,15 @@ function ToolbarButton({
 
 export default function NavigationBar({
   address,
+  addressInputRef,
   activeId,
+  isNewTab,
   loading,
   error,
   onAddressChange,
   onSubmit,
   onHistoryAction,
 }: NavigationBarProps) {
-  const addressRef = useRef<HTMLInputElement>(null);
   const isSecure = address.trim().toLowerCase().startsWith("https://");
 
   return (
@@ -65,21 +68,21 @@ export default function NavigationBar({
         <div className="flex shrink-0 items-center gap-0.5">
           <ToolbarButton
             label="Back"
-            disabled={!activeId}
+            disabled={!activeId || isNewTab}
             onClick={() => onHistoryAction("goBack")}
           >
             <ArrowLeft size={17} />
           </ToolbarButton>
           <ToolbarButton
             label="Forward"
-            disabled={!activeId}
+            disabled={!activeId || isNewTab}
             onClick={() => onHistoryAction("goForward")}
           >
             <ArrowRight size={17} />
           </ToolbarButton>
           <ToolbarButton
             label={loading ? "Stop loading" : "Reload"}
-            disabled={!activeId}
+            disabled={!activeId || isNewTab}
             onClick={() => onHistoryAction(loading ? "stop" : "reload")}
           >
             {loading ? <X size={16} /> : <RotateCw size={16} />}
@@ -99,12 +102,13 @@ export default function NavigationBar({
               )}
             </span>
             <input
-              ref={addressRef}
+              ref={addressInputRef}
               value={address}
               onChange={(event) => onAddressChange(event.target.value)}
               onFocus={(event) => event.currentTarget.select()}
-              placeholder="Search or enter address"
-              aria-label="Address or search"
+              placeholder="Google'da ara veya bir URL yaz..."
+              aria-label="Google'da ara veya bir URL yaz"
+              data-omnibox
               aria-invalid={Boolean(error)}
               title={error || undefined}
               className="h-full min-w-0 flex-1 bg-transparent font-mono text-[13px] text-[var(--text-primary)] outline-none placeholder:font-sans placeholder:text-[var(--text-muted)]"
