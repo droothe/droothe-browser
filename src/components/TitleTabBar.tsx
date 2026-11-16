@@ -30,14 +30,14 @@ function TabFavicon({ url }: { url: string }) {
   }
 
   if (failed || !faviconUrl) {
-    return <Globe size={14} className="shrink-0 text-[var(--text-muted)]" />;
+    return <Globe size={16} className="shrink-0 text-[var(--text-muted)]" />;
   }
 
   return (
     <img
       src={faviconUrl}
       alt=""
-      className="h-3.5 w-3.5 shrink-0 rounded-sm"
+      className="h-4 w-4 shrink-0 rounded-sm"
       onError={() => setFailed(true)}
     />
   );
@@ -107,54 +107,56 @@ export default function TitleTabBar({
 
   return (
     <div className="flex h-10 min-h-10 items-center gap-1 border-b border-[var(--border-subtle)] bg-[var(--bg-shell)] px-2">
-      <div className="flex h-full min-w-0 max-w-[calc(100%-9rem)] items-end gap-0.5 overflow-x-auto">
-        {tabs.map((tab) => {
-          const active = activeId === tab.id;
-          return (
-            <div
-              key={tab.id}
-              data-active={active}
-              className={`tab-item group relative flex h-[34px] min-w-[92px] max-w-56 flex-1 cursor-pointer items-center gap-2 rounded-t-lg px-2.5 text-xs transition-colors duration-150 ${
-                active
-                  ? "bg-[var(--bg-surface)] text-[var(--text-primary)] before:absolute before:inset-x-0 before:top-0 before:h-0.5 before:rounded-t-lg before:bg-[var(--accent-primary)]"
-                  : "bg-[var(--bg-shell)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
-              }`}
-              onClick={() => onActivate(tab)}
-              title={tab.url}
-            >
-              <TabFavicon key={tab.url} url={tab.url} />
-              <span className="min-w-0 flex-1 truncate font-medium">{tab.title}</span>
-              <button
-                type="button"
-                aria-label="Close tab"
-                className={`tab-close ml-auto h-5 w-5 shrink-0 items-center justify-center rounded text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] ${
-                  active ? "flex" : "hidden group-hover:flex"
+      <div className="flex h-full min-w-0 flex-1 items-center overflow-hidden">
+        <div className="flex h-full min-w-0 flex-1 items-end gap-0.5 overflow-x-auto">
+          {tabs.map((tab) => {
+            const active = activeId === tab.id;
+            return (
+              <div
+                key={tab.id}
+                data-active={active}
+                className={`tab-item group relative flex h-8 min-w-[120px] max-w-[220px] flex-1 cursor-pointer items-center gap-2 rounded-t-lg px-3 text-xs transition-colors duration-150 ${
+                  active
+                    ? "bg-[var(--bg-surface)] text-[var(--text-primary)] before:absolute before:inset-x-0 before:top-0 before:h-0.5 before:rounded-t-lg before:bg-[var(--accent-primary)]"
+                    : "bg-[var(--bg-shell)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
                 }`}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  onClose(tab.id);
-                }}
+                onClick={() => onActivate(tab)}
+                title={tab.url}
               >
-                <X size={13} />
-              </button>
-            </div>
-          );
-        })}
+                <TabFavicon key={tab.url} url={tab.url} />
+                <span className="min-w-0 flex-1 truncate font-medium">{tab.title}</span>
+                <button
+                  type="button"
+                  aria-label="Close tab"
+                  className={`tab-close ml-auto h-5 w-5 shrink-0 items-center justify-center rounded text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] ${
+                    active ? "flex" : "hidden group-hover:flex"
+                  }`}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onClose(tab.id);
+                  }}
+                >
+                  <X size={13} />
+                </button>
+              </div>
+            );
+          })}
+          <button
+            type="button"
+            aria-label="New tab"
+            title="New tab"
+            onClick={onCreate}
+            className="ml-1 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
+          >
+            <Plus size={16} />
+          </button>
+          <div data-tauri-drag-region className="h-full min-w-4 flex-1" />
+        </div>
       </div>
 
-      <button
-        type="button"
-        aria-label="New tab"
-        title="New tab"
-        onClick={onCreate}
-        className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-[var(--text-secondary)] transition-colors duration-150 hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
-      >
-        <Plus size={16} />
-      </button>
+      <div data-tauri-drag-region className="h-full w-2 shrink-0" />
 
-      <div data-tauri-drag-region className="h-full min-w-4 flex-1" />
-
-      <div className="flex h-full shrink-0 items-center" data-tauri-drag-region>
+      <div className="flex h-full shrink-0 items-center">
         <button
           type="button"
           aria-label="Minimize window"
