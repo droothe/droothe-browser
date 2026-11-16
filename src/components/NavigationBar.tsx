@@ -18,10 +18,12 @@ type NavigationBarProps = {
   activeId: string | null;
   isNewTab: boolean;
   loading: boolean;
+  scratchpadOpen: boolean;
   error: string;
   onAddressChange: (value: string) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
   onHistoryAction: (action: "goBack" | "goForward" | "reload" | "stop") => void;
+  onToggleScratchpad: () => void;
 };
 
 function ToolbarButton({
@@ -55,10 +57,12 @@ export default function NavigationBar({
   activeId,
   isNewTab,
   loading,
+  scratchpadOpen,
   error,
   onAddressChange,
   onSubmit,
   onHistoryAction,
+  onToggleScratchpad,
 }: NavigationBarProps) {
   const isSecure = address.trim().toLowerCase().startsWith("https://");
 
@@ -131,7 +135,13 @@ export default function NavigationBar({
                 type="button"
                 aria-label="Quick Scratchpad"
                 title="Quick Scratchpad"
-                className="flex h-6 w-6 items-center justify-center rounded-md text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--accent-secondary)]"
+                aria-pressed={scratchpadOpen}
+                onClick={onToggleScratchpad}
+                className={`flex h-6 w-6 items-center justify-center rounded-md transition-colors hover:bg-[var(--bg-hover)] ${
+                  scratchpadOpen
+                    ? "text-[var(--accent-primary)]"
+                    : "text-[var(--text-muted)] hover:text-[var(--accent-secondary)]"
+                }`}
               >
                 <StickyNote size={14} />
               </button>

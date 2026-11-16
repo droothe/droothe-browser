@@ -4,6 +4,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import NewTabView from "./components/NewTabView";
 import NavigationBar from "./components/NavigationBar";
+import ScratchpadDrawer from "./components/ScratchpadDrawer";
 import TitleTabBar, { BrowserTab } from "./components/TitleTabBar";
 import {
   fallbackTabTitle,
@@ -15,6 +16,7 @@ import {
 
 type TabTitleUpdate = { tabId: string; title: string };
 type BrowserShortcut = { tabId: string; shortcut: string };
+const SCRATCHPAD_WIDTH = 360;
 type ShortcutActions = {
   tabs: BrowserTab[];
   activeId: string | null;
@@ -30,6 +32,7 @@ function App() {
   const [address, setAddress] = useState("");
   const [error, setError] = useState("");
   const [loadingByTab, setLoadingByTab] = useState<Record<string, boolean>>({});
+  const [isScratchpadOpen, setIsScratchpadOpen] = useState(false);
   const nextId = useRef(1);
   const viewportRef = useRef<HTMLDivElement>(null);
   const addressInputRef = useRef<HTMLInputElement>(null);
@@ -177,6 +180,9 @@ function App() {
           addressInputRef.current?.focus();
           addressInputRef.current?.select();
           break;
+        case "toggle-scratchpad":
+          setIsScratchpadOpen((open) => !open);
+          break;
         case "next-tab":
         case "previous-tab": {
           if (!actions.activeId || actions.tabs.length < 2) break;
@@ -207,7 +213,15 @@ function App() {
       else if ((event.key === "F5" && !modifier) || (modifier && !event.shiftKey && key === "r")) {
         shortcut = "reload";
       } else if (event.key === "F6" && !modifier) shortcut = "focus-address";
-      else if (modifier && key === "tab") {
+      else if (
+        event.key === '"' &&
+        !(
+          event.target instanceof Element &&
+          event.target.closest('input, textarea, [contenteditable="true"]')
+        )
+      ) {
+        shortcut = "toggle-scratchpad";
+      } else if (modifier && key === "tab") {
         shortcut = event.shiftKey ? "previous-tab" : "next-tab";
       } else if (modifier && !event.shiftKey && /^[1-9]$/.test(event.key)) {
         shortcut = `tab-${event.key}`;
@@ -294,16 +308,21 @@ function App() {
           currentWindow.innerSize(),
           currentWindow.scaleFactor(),
         ]);
-        const width = rect.width > 0 ? rect.width : innerSize.width / scaleFactor;
+        const viewportWidth = rect.width > 0 ? rect.width : innerSize.width / scaleFactor;
+        const width = Math.max(
+          1,
+          viewportWidth - (isScratchpadOpen ? SCRATCHPAD_WIDTH : 0),
+        );
         const height =
           rect.height > 0
             ? rect.height
             : Math.max(1, innerSize.height / scaleFactor - 84);
         await invoke("sync_active_webview_bounds", {
-          x: rect.width > 0 ? rect.x : 0,
-          y: rect.height > 0 ? rect.y : 84,
+          x: 0,
+          y: 84,
           width,
           height,
+          scratchpadOpen: isScratchpadOpen,
         });
       } catch (reason) {
         setError(String(reason));
@@ -331,10 +350,10 @@ function App() {
       unlistenResize?.();
       observer.disconnect();
     };
-  }, [activeId, activeIsNewTab]);
+  }, [activeId, activeIsNewTab, isScratchpadOpen]);
 
   return (
-    <div className="flex h-full w-full flex-col overflow-hidden bg-[var(--bg-shell)] text-[var(--text-primary)]">
+    <div className="relative flex h-full w-full flex-col overflow-hidden bg-[var(--bg-shell)] text-[var(--text-primary)]">
       <header className="flex h-[84px] w-full shrink-0 flex-col overflow-hidden">
         <TitleTabBar
           tabs={tabs}
@@ -350,18 +369,34 @@ function App() {
           activeId={activeId}
           isNewTab={activeIsNewTab}
           loading={activeLoading}
+          scratchpadOpen={isScratchpadOpen}
           error={error}
           onAddressChange={setAddress}
           onSubmit={navigate}
           onHistoryAction={(action) => void runHistoryAction(action)}
+          onToggleScratchpad={() => setIsScratchpadOpen((open) => !open)}
         />
         {activeTab && <span className="sr-only">{activeTab.title}</span>}
       </header>
       <div ref={viewportRef} className="relative min-h-0 flex-1 overflow-hidden">
         {activeIsNewTab && (
-          <NewTabView onNavigate={(url) => void navigateTo(url)} onError={handleError} />
+          <div
+            className="h-full min-w-0"
+            style={{
+              width: isScratchpadOpen ? "max(0px, calc(100% - 360px))" : "100%",
+            }}
+          >
+            <NewTabView onNavigate={(url) => void navigateTo(url)} onError={handleError} />
+          </div>
         )}
       </div>
+      {isScratchpadOpen && (
+        <ScratchpadDrawer
+          currentPage={activeTab ? { title: activeTab.title, url: activeTab.url } : null}
+          onClose={() => setIsScratchpadOpen(false)}
+          onError={handleError}
+        />
+      )}
     </div>
   );
 }

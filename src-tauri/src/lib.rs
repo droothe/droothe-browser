@@ -8,11 +8,13 @@ use tauri::{
 use url::Url;
 
 const TOOLBAR_HEIGHT: f64 = 84.0;
+const SCRATCHPAD_WIDTH: f64 = 360.0;
 
 #[derive(Default)]
 struct BrowserState {
     active_tab: Mutex<Option<String>>,
     internal_tab: Mutex<Option<String>>,
+    scratchpad_open: Mutex<bool>,
 }
 
 #[derive(Clone, Serialize)]
@@ -87,7 +89,7 @@ fn set_active_tab(state: &BrowserState, tab_id: String, is_internal: bool) -> Re
     Ok(())
 }
 
-fn active_webview_layout(state: &BrowserState) -> (Option<String>, bool) {
+fn active_webview_layout(state: &BrowserState) -> (Option<String>, bool, bool) {
     let active_tab = state
         .active_tab
         .lock()
@@ -104,19 +106,44 @@ fn active_webview_layout(state: &BrowserState) -> (Option<String>, bool) {
             eprintln!("Dahili sekme durumu okunamadı: {error}");
             None
         });
+    let scratchpad_open = state
+        .scratchpad_open
+        .lock()
+        .map(|open| *open)
+        .unwrap_or_else(|error| {
+            eprintln!("Scratchpad durumu okunamadı: {error}");
+            false
+        });
     let is_internal = active_tab.is_some() && active_tab == internal_tab;
-    (active_tab, is_internal)
+    (active_tab, is_internal, scratchpad_open)
+}
+
+fn child_webview_dimensions(state: &BrowserState, window: &Window) -> Result<(f64, f64), String> {
+    let (window_width, window_height) = logical_window_dimensions(window)?;
+    let scratchpad_open = *state
+        .scratchpad_open
+        .lock()
+        .map_err(|_| "Scratchpad durumu kullanılamıyor.".to_string())?;
+    let width = (window_width
+        - if scratchpad_open {
+            SCRATCHPAD_WIDTH
+        } else {
+            0.0
+        })
+    .max(1.0);
+    let height = (window_height - TOOLBAR_HEIGHT).max(1.0);
+    Ok((width, height))
 }
 
 fn create_tab_webview(
     app: &AppHandle,
     window: &Window,
+    state: &BrowserState,
     tab_id: &str,
     url: Url,
 ) -> Result<(), String> {
     let label = tab_label(tab_id)?;
-    let (width, window_height) = logical_window_dimensions(window)?;
-    let height = (window_height - TOOLBAR_HEIGHT).max(1.0);
+    let (width, height) = child_webview_dimensions(state, window)?;
     let app_handle = app.clone();
     let load_tab_id = tab_id.to_string();
     let title_app_handle = app.clone();
@@ -126,12 +153,16 @@ fn create_tab_webview(
   document.addEventListener("keydown", (event) => {
     const key = event.key.toLowerCase();
     const modifier = event.ctrlKey || event.metaKey;
+    const target = event.target;
+    const isTypingTarget = target instanceof Element
+      && target.closest('input, textarea, [contenteditable="true"]') !== null;
     let shortcut;
     if (modifier && event.shiftKey && key === "t") shortcut = "restore-tab";
     else if (modifier && !event.shiftKey && key === "t") shortcut = "new-tab";
     else if (modifier && !event.shiftKey && key === "w") shortcut = "close-tab";
     else if ((event.key === "F5" && !modifier) || (modifier && !event.shiftKey && key === "r")) shortcut = "reload";
     else if (event.key === "F6" && !modifier) shortcut = "focus-address";
+    else if (event.key === '"' && !isTypingTarget) shortcut = "toggle-scratchpad";
     else if (modifier && key === "tab") shortcut = event.shiftKey ? "previous-tab" : "next-tab";
     else if (modifier && !event.shiftKey && /^[1-9]$/.test(event.key)) shortcut = `tab-${event.key}`;
     if (!shortcut) return;
@@ -190,6 +221,7 @@ fn dispatch_browser_shortcut(
             | "restore-tab"
             | "reload"
             | "focus-address"
+            | "toggle-scratchpad"
             | "next-tab"
             | "previous-tab"
             | "tab-1"
@@ -261,6 +293,7 @@ fn update_webview_bounds(
     app: &AppHandle,
     tab_id: Option<String>,
     is_internal: bool,
+    scratchpad_open: bool,
     physical_size: PhysicalSize<u32>,
     scale_factor: f64,
 ) {
@@ -268,7 +301,14 @@ fn update_webview_bounds(
         eprintln!("Pencere ölçeği geçersiz: {scale_factor}");
         return;
     }
-    let width = f64::from(physical_size.width) / scale_factor;
+    let window_width = f64::from(physical_size.width) / scale_factor;
+    let child_width = (window_width
+        - if scratchpad_open {
+            SCRATCHPAD_WIDTH
+        } else {
+            0.0
+        })
+    .max(1.0);
     let window_height = f64::from(physical_size.height) / scale_factor;
     let height = (window_height - TOOLBAR_HEIGHT).max(1.0);
 
@@ -278,7 +318,7 @@ fn update_webview_bounds(
         } else {
             TOOLBAR_HEIGHT
         };
-        if let Err(error) = main_webview.set_size(LogicalSize::new(width, main_height)) {
+        if let Err(error) = main_webview.set_size(LogicalSize::new(window_width, main_height)) {
             eprintln!("Ana arayüz boyutu güncellenemedi: {error}");
         }
     }
@@ -288,7 +328,7 @@ fn update_webview_bounds(
                 if let Some(webview) = app.get_webview(&label) {
                     if let Err(error) = webview
                         .set_position(LogicalPosition::new(0.0, TOOLBAR_HEIGHT))
-                        .and_then(|_| webview.set_size(LogicalSize::new(width, height)))
+                        .and_then(|_| webview.set_size(LogicalSize::new(child_width, height)))
                     {
                         eprintln!("Sekme webview boyutu güncellenemedi: {error}");
                     }
@@ -324,6 +364,7 @@ fn sync_active_webview_bounds(
     y: f64,
     width: f64,
     height: f64,
+    scratchpad_open: bool,
 ) -> Result<(), String> {
     if ![x, y, width, height].iter().all(|value| value.is_finite())
         || x < 0.0
@@ -333,6 +374,11 @@ fn sync_active_webview_bounds(
     {
         return Err("Webview sınırları geçersiz.".into());
     }
+
+    *state
+        .scratchpad_open
+        .lock()
+        .map_err(|_| "Scratchpad durumu kullanılamıyor.".to_string())? = scratchpad_open;
 
     let active_tab = state
         .active_tab
@@ -391,7 +437,7 @@ async fn open_tab(
         .map_err(|error| format!("Tarayıcı araç çubuğu gösterilemedi: {error}"))?;
 
     if app.get_webview(&label).is_none() {
-        create_tab_webview(&app, &window, &tab_id, url)?;
+        create_tab_webview(&app, &window, &state, &tab_id, url)?;
     }
 
     if let Some(previous_id) = previous_active {
@@ -409,8 +455,11 @@ async fn open_tab(
     let webview = app
         .get_webview(&label)
         .ok_or_else(|| "Sekme webview'ı bulunamadı.".to_string())?;
+    let (child_width, child_height) = child_webview_dimensions(&state, &window)?;
     webview
-        .show()
+        .set_position(LogicalPosition::new(0.0, TOOLBAR_HEIGHT))
+        .and_then(|_| webview.set_size(LogicalSize::new(child_width, child_height)))
+        .and_then(|_| webview.show())
         .map_err(|error| format!("Sekme gösterilemedi: {error}"))?;
     set_active_tab(&state, tab_id, false)
 }
@@ -448,7 +497,7 @@ async fn navigate_tab(
 
     let is_new_webview = app.get_webview(&label).is_none();
     if is_new_webview {
-        create_tab_webview(&app, &window, &tab_id, url)?;
+        create_tab_webview(&app, &window, &state, &tab_id, url)?;
     } else {
         app.get_webview(&label)
             .ok_or_else(|| "Sekme bulunamadı.".to_string())?
@@ -458,6 +507,7 @@ async fn navigate_tab(
     let webview = app
         .get_webview(&label)
         .ok_or_else(|| "Sekme bulunamadı.".to_string())?;
+    let (child_width, child_height) = child_webview_dimensions(&state, &window)?;
     if let Some(previous_id) = previous_active {
         if previous_id != tab_id {
             if let Ok(previous_label) = tab_label(&previous_id) {
@@ -470,7 +520,9 @@ async fn navigate_tab(
         }
     }
     webview
-        .show()
+        .set_position(LogicalPosition::new(0.0, TOOLBAR_HEIGHT))
+        .and_then(|_| webview.set_size(LogicalSize::new(child_width, child_height)))
+        .and_then(|_| webview.show())
         .map_err(|error| format!("Sekme gösterilemedi: {error}"))?;
     set_active_tab(&state, tab_id, false)
 }
@@ -531,11 +583,13 @@ pub fn run() {
                 WindowEvent::Resized(physical_size) => match resize_window.scale_factor() {
                     Ok(scale_factor) => {
                         let state = app_handle.state::<BrowserState>();
-                        let (active_tab, is_internal) = active_webview_layout(&state);
+                        let (active_tab, is_internal, scratchpad_open) =
+                            active_webview_layout(&state);
                         update_webview_bounds(
                             &app_handle,
                             active_tab,
                             is_internal,
+                            scratchpad_open,
                             *physical_size,
                             scale_factor,
                         );
@@ -548,11 +602,12 @@ pub fn run() {
                     ..
                 } => {
                     let state = app_handle.state::<BrowserState>();
-                    let (active_tab, is_internal) = active_webview_layout(&state);
+                    let (active_tab, is_internal, scratchpad_open) = active_webview_layout(&state);
                     update_webview_bounds(
                         &app_handle,
                         active_tab,
                         is_internal,
+                        scratchpad_open,
                         *new_inner_size,
                         *scale_factor,
                     );
