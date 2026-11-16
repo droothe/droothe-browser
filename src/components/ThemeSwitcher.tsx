@@ -31,7 +31,7 @@ export default function ThemeSwitcher() {
         <Palette size={16} />
       </button>
       {open && (
-        <div className="absolute right-0 top-10 z-20 w-48 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-1.5 shadow-2xl">
+        <div className="shell-popover absolute right-0 top-10 z-20 w-48 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-1.5 shadow-2xl">
           {browserThemes.map((option) => (
             <button
               key={option.id}

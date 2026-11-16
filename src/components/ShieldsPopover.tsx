@@ -123,7 +123,7 @@ export default function ShieldsPopover({
       </button>
 
       {open && status && (
-        <div className="absolute right-0 top-[calc(100%+10px)] z-50 w-72 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-4 text-[var(--text-primary)] shadow-2xl">
+        <div className="shell-popover absolute right-0 top-[calc(100%+10px)] z-50 w-72 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-4 text-[var(--text-primary)] shadow-2xl">
           <div className="mb-4 flex items-start justify-between gap-3">
             <div className="flex items-center gap-2">
               <ShieldCheck size={18} className="text-[var(--accent-secondary)]" />

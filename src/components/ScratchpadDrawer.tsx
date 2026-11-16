@@ -6,6 +6,7 @@ type ScratchpadNotes = [string, string, string];
 type SaveStatus = "saving" | "saved" | "error";
 
 type ScratchpadDrawerProps = {
+  open: boolean;
   currentPage: { title: string; url: string } | null;
   onClose: () => void;
   onError: (message: string) => void;
@@ -23,6 +24,7 @@ function isScratchpadNotes(value: unknown): value is ScratchpadNotes {
 }
 
 export default function ScratchpadDrawer({
+  open,
   currentPage,
   onClose,
   onError,
@@ -104,7 +106,9 @@ export default function ScratchpadDrawer({
   return (
     <aside
       aria-label="Hızlı Notlar"
-      className="absolute bottom-0 right-0 top-[84px] z-30 flex w-[360px] flex-col border-l border-[var(--border-subtle)] bg-[var(--bg-surface)] shadow-2xl"
+      className={`absolute bottom-0 right-0 top-[84px] z-30 flex w-[360px] flex-col border-l border-[var(--border-subtle)] bg-[var(--bg-surface)] shadow-2xl ${
+        open ? "scratchpad-drawer--enter" : "scratchpad-drawer--exit"
+      }`}
     >
       <header className="flex items-center justify-between border-b border-[var(--border-subtle)] px-4 py-3">
         <div className="flex items-center gap-2">

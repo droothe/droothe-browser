@@ -34,6 +34,7 @@ function App() {
   const [error, setError] = useState("");
   const [loadingByTab, setLoadingByTab] = useState<Record<string, boolean>>({});
   const [isScratchpadOpen, setIsScratchpadOpen] = useState(false);
+  const [isScratchpadMounted, setIsScratchpadMounted] = useState(false);
   const [isGeminiOpen, setIsGeminiOpen] = useState(false);
   const nextId = useRef(1);
   const viewportRef = useRef<HTMLDivElement>(null);
@@ -46,6 +47,15 @@ function App() {
   const activeLoading = activeId ? Boolean(loadingByTab[activeId]) : false;
 
   const handleError = useCallback((message: string) => setError(message), []);
+
+  useEffect(() => {
+    if (isScratchpadOpen) {
+      setIsScratchpadMounted(true);
+      return;
+    }
+    const timer = window.setTimeout(() => setIsScratchpadMounted(false), 220);
+    return () => window.clearTimeout(timer);
+  }, [isScratchpadOpen]);
 
   async function activateTab(tab: BrowserTab) {
     setError("");
@@ -418,8 +428,9 @@ function App() {
           </div>
         )}
       </div>
-      {isScratchpadOpen && (
+      {isScratchpadMounted && (
         <ScratchpadDrawer
+          open={isScratchpadOpen}
           currentPage={activeTab ? { title: activeTab.title, url: activeTab.url } : null}
           onClose={() => setIsScratchpadOpen(false)}
           onError={handleError}

@@ -1,6 +1,7 @@
+import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { Globe, Maximize2, Minimize2, Minus, Plus, X } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import DrootheLogo from "./DrootheLogo";
 
 const currentWindow = getCurrentWindow();
@@ -53,6 +54,10 @@ export default function TitleTabBar({
   onError,
 }: TitleTabBarProps) {
   const [maximized, setMaximized] = useState(false);
+  const [closingTabIds, setClosingTabIds] = useState<Set<string>>(() => new Set());
+  const closeTimers = useRef(new Map<string, number>());
+  const tabsRef = useRef(tabs);
+  tabsRef.current = tabs;
 
   useEffect(() => {
     let unlisten: (() => void) | undefined;
@@ -81,9 +86,32 @@ export default function TitleTabBar({
     };
   }, [currentWindow, onError]);
 
+  useEffect(
+    () => () => {
+      closeTimers.current.forEach((timer) => window.clearTimeout(timer));
+      closeTimers.current.clear();
+    },
+    [],
+  );
+
+  function closeTab(tabId: string) {
+    if (closeTimers.current.has(tabId)) return;
+    setClosingTabIds((current) => new Set(current).add(tabId));
+    const timer = window.setTimeout(() => {
+      closeTimers.current.delete(tabId);
+      setClosingTabIds((current) => {
+        const next = new Set(current);
+        next.delete(tabId);
+        return next;
+      });
+      if (tabsRef.current.some((tab) => tab.id === tabId)) onClose(tabId);
+    }, 140);
+    closeTimers.current.set(tabId, timer);
+  }
+
   async function toggleMaximize() {
     try {
-      await currentWindow.toggleMaximize();
+      await invoke("win_toggle_maximize");
       setMaximized(await currentWindow.isMaximized());
     } catch (reason) {
       console.error("Could not toggle window maximize state.", reason);
@@ -93,7 +121,7 @@ export default function TitleTabBar({
 
   async function minimize() {
     try {
-      await currentWindow.minimize();
+      await invoke("win_minimize");
     } catch (reason) {
       console.error("Could not minimize the window.", reason);
       onError(String(reason));
@@ -102,7 +130,7 @@ export default function TitleTabBar({
 
   async function closeWindow() {
     try {
-      await currentWindow.close();
+      await invoke("win_close");
     } catch (reason) {
       console.error("Could not close the window.", reason);
       onError(String(reason));
@@ -122,11 +150,11 @@ export default function TitleTabBar({
               <div
                 key={tab.id}
                 data-active={active}
-                className={`tab-item group relative flex h-8 min-w-[120px] max-w-[220px] flex-1 cursor-pointer items-center gap-2 rounded-t-lg px-3 text-xs transition-colors duration-150 ${
+                className={`tab-item group relative flex h-8 min-w-[120px] max-w-[220px] flex-1 cursor-pointer items-center gap-2 rounded-t-lg px-3 text-xs ${
                   active
                     ? "bg-[var(--bg-surface)] text-[var(--text-primary)] before:absolute before:inset-x-0 before:top-0 before:h-0.5 before:rounded-t-lg before:bg-[var(--accent-primary)]"
                     : "bg-[var(--bg-shell)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
-                }`}
+                } ${closingTabIds.has(tab.id) ? "tab-item--closing" : ""}`}
                 onClick={() => onActivate(tab)}
                 title={tab.url}
               >
@@ -140,7 +168,7 @@ export default function TitleTabBar({
                   }`}
                   onClick={(event) => {
                     event.stopPropagation();
-                    onClose(tab.id);
+                    closeTab(tab.id);
                   }}
                 >
                   <X size={13} />
@@ -157,11 +185,9 @@ export default function TitleTabBar({
           >
             <Plus size={16} />
           </button>
-          <div data-tauri-drag-region className="h-full min-w-4 flex-1" />
+          <div data-tauri-drag-region className="h-full min-w-4 flex-1" aria-hidden="true" />
         </div>
       </div>
-
-      <div data-tauri-drag-region className="h-full w-2 shrink-0" />
 
       <div className="flex h-full shrink-0 items-center">
         <button
@@ -170,7 +196,7 @@ export default function TitleTabBar({
           title="Minimize"
           onMouseDown={(event) => event.stopPropagation()}
           onClick={() => void minimize()}
-          className="relative z-50 pointer-events-auto flex h-8 w-10 items-center justify-center rounded-md text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
+          className="relative z-50 pointer-events-auto flex h-8 w-10 items-center justify-center rounded-md text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
         >
           <Minus size={15} />
         </button>
@@ -180,7 +206,7 @@ export default function TitleTabBar({
           title={maximized ? "Restore" : "Maximize"}
           onMouseDown={(event) => event.stopPropagation()}
           onClick={() => void toggleMaximize()}
-          className="relative z-50 pointer-events-auto flex h-8 w-10 items-center justify-center rounded-md text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
+          className="relative z-50 pointer-events-auto flex h-8 w-10 items-center justify-center rounded-md text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
         >
           {maximized ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
         </button>
@@ -190,7 +216,7 @@ export default function TitleTabBar({
           title="Close"
           onMouseDown={(event) => event.stopPropagation()}
           onClick={() => void closeWindow()}
-          className="relative z-50 pointer-events-auto flex h-8 w-10 items-center justify-center rounded-md text-[var(--text-secondary)] transition-colors hover:bg-rose-500 hover:text-white"
+          className="relative z-50 pointer-events-auto flex h-8 w-10 items-center justify-center rounded-md text-[var(--text-secondary)] hover:bg-red-500/90 hover:text-white"
         >
           <X size={16} />
         </button>

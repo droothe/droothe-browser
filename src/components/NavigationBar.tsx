@@ -106,7 +106,7 @@ export default function NavigationBar({
         </div>
 
         <div className="flex min-w-0 flex-1 justify-center">
-          <div className="flex h-8 w-full max-w-3xl min-w-0 items-center rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-omnibox)] px-2.5 transition duration-150 focus-within:border-[var(--accent-primary)] focus-within:ring-2 focus-within:ring-[var(--accent-glow)]">
+          <div className="omnibox-shell flex h-8 w-full max-w-3xl min-w-0 items-center rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-omnibox)] px-2.5 focus-within:border-[var(--accent-primary)] focus-within:ring-2 focus-within:ring-[var(--accent-glow)]">
             <span
               className="mr-2 flex shrink-0 items-center"
               title={isSecure ? "Secure connection" : "Connection information"}

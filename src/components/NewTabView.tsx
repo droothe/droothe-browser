@@ -194,7 +194,7 @@ export default function NewTabView({ onNavigate, onError }: NewTabViewProps) {
         {greeting}
       </p>
 
-      <div className="mb-8 flex flex-col items-center">
+      <div className="motion-fade-up motion-delay-1 mb-8 flex flex-col items-center">
         <time
           dateTime={now.toISOString()}
           className="font-mono text-5xl font-medium tabular-nums tracking-tight text-[var(--text-primary)]"
@@ -211,8 +211,8 @@ export default function NewTabView({ onNavigate, onError }: NewTabViewProps) {
         </span>
       </div>
 
-      <form className="w-full max-w-xl" onSubmit={submitSearch}>
-        <div className="flex h-14 w-full items-center gap-3 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-omnibox)] px-4 transition duration-150 focus-within:border-[var(--accent-primary)] focus-within:ring-2 focus-within:ring-[var(--accent-glow)]">
+      <form className="motion-fade-up motion-delay-2 w-full max-w-xl" onSubmit={submitSearch}>
+        <div className="omnibox-shell flex h-14 w-full items-center gap-3 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-omnibox)] px-4 focus-within:border-[var(--accent-primary)] focus-within:ring-2 focus-within:ring-[var(--accent-glow)]">
           <Search size={19} className="shrink-0 text-[var(--text-secondary)]" />
           <input
             ref={searchRef}
@@ -228,7 +228,7 @@ export default function NewTabView({ onNavigate, onError }: NewTabViewProps) {
         </div>
       </form>
 
-      <div className="mt-8 grid w-full max-w-xl grid-cols-4 gap-3 sm:grid-cols-5">
+      <div className="motion-fade-up motion-delay-3 mt-8 grid w-full max-w-xl grid-cols-4 gap-3 sm:grid-cols-5">
         {sites.map((site, index) => (
           <div
             key={site.id}
@@ -296,7 +296,7 @@ export default function NewTabView({ onNavigate, onError }: NewTabViewProps) {
 
       {addOpen && (
         <div
-          className="fixed inset-0 z-30 flex items-center justify-center bg-black/55 px-4"
+          className="shell-modal-backdrop fixed inset-0 z-30 flex items-center justify-center bg-black/55 px-4"
           onMouseDown={(event) => {
             if (event.target === event.currentTarget) setAddOpen(false);
           }}
@@ -306,7 +306,7 @@ export default function NewTabView({ onNavigate, onError }: NewTabViewProps) {
             aria-modal="true"
             aria-labelledby="add-shortcut-title"
             onSubmit={addSite}
-            className="w-full max-w-sm rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-5 shadow-2xl"
+            className="shell-modal w-full max-w-sm rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-5 shadow-2xl"
           >
             <div className="mb-5 flex items-center justify-between">
               <h2 id="add-shortcut-title" className="text-sm font-semibold text-[var(--text-primary)]">

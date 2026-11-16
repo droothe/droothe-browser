@@ -602,6 +602,27 @@ fn dispatch_browser_shortcut(
 }
 
 #[tauri::command]
+fn win_minimize(window: Window) -> Result<(), String> {
+    window.minimize().map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn win_toggle_maximize(window: Window) -> Result<(), String> {
+    let maximized = window.is_maximized().map_err(|error| error.to_string())?;
+    let result = if maximized {
+        window.unmaximize()
+    } else {
+        window.maximize()
+    };
+    result.map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn win_close(window: Window) -> Result<(), String> {
+    window.close().map_err(|error| error.to_string())
+}
+
+#[tauri::command]
 fn toggle_gemini_panel(
     app: AppHandle,
     state: State<'_, BrowserState>,
@@ -1039,6 +1060,9 @@ pub fn run() {
             history_tab,
             sync_active_webview_bounds,
             dispatch_browser_shortcut,
+            win_minimize,
+            win_toggle_maximize,
+            win_close,
             toggle_gemini_panel,
             reload_gemini_panel,
             get_shields_status,
